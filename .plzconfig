@@ -22,7 +22,7 @@ Inherit = true
 
 [PluginConfig "solc_tool"]
 ConfigKey = SolcTool
-Help = Build label for hermetic solc binary (from solc() rule). When set, sol_contract uses --solc flag for fully hermetic builds.
+Help = Build label for solc binary (from solc() rule). When set, sol_contract uses the local solc instead of downloading.
 Optional = true
 Inherit = true
 

@@ -145,7 +145,7 @@ def svm(
         hashes: list = [],
         visibility: list = [],
 ):
-    """Downloads pre-built svm binary for managing solc versions hermetically.
+    """Downloads pre-built svm binary for managing solc versions.
 
     svm (Solidity Version Manager) is a tool for installing and managing
     multiple versions of the Solidity compiler.
@@ -178,16 +178,17 @@ def svm(
         else:
             fail(f'Unknown architecture {CONFIG.ARCH}')
 
-    # Map to svm-rs platform naming
+    # Map to svm-rs platform naming (os_arch -> platform)
     platform_map = {
-        ('darwin', 'arm64'): 'aarch64-apple-darwin',
-        ('darwin', 'amd64'): 'x86_64-apple-darwin',
-        ('linux', 'arm64'): 'aarch64-unknown-linux-gnu',
-        ('linux', 'amd64'): 'x86_64-unknown-linux-gnu',
+        'darwin_arm64': 'aarch64-apple-darwin',
+        'darwin_amd64': 'x86_64-apple-darwin',
+        'linux_arm64': 'aarch64-unknown-linux-gnu',
+        'linux_amd64': 'x86_64-unknown-linux-gnu',
     }
-    platform = platform_map.get((os, arch))
+    platform_key = f'{os}_{arch}'
+    platform = platform_map.get(platform_key)
     if not platform:
-        fail(f'Unsupported platform: {os}_{arch}')
+        fail(f'Unsupported platform: {platform_key}')
 
     url = f"https://github.com/alloy-rs/svm-rs/releases/download/v{version}/svm-rs-{platform}.tar.gz"
 
@@ -201,7 +202,7 @@ def svm(
         name = name,
         srcs = [download],
         outs = ["svm"],
-        cmd = "tar -xzf $SRC && mv svm $OUT",
+        cmd = f"tar -xzf $SRC && mv svm-rs-{platform}/svm $OUT",
         binary = True,
         visibility = visibility,
         building_description = f"Extracting svm v{version} for {platform}...",
@@ -218,7 +219,7 @@ def solc(
 
     This rule uses svm to download and install a specific version of the
     Solidity compiler. The resulting binary can be used with sol_contract's
-    solc_tool parameter for fully hermetic builds.
+    solc_tool parameter.
 
     Args:
         name: Name of the rule.
@@ -241,7 +242,7 @@ def solc(
         tools = {"svm": svm},
         outs = ["solc"],
         # svm install downloads to ~/.svm/version/solc-version
-        # We copy it out to make it hermetic
+        # We copy it to make it portable
         cmd = f"""
             export SVM_HOME=$TMP_DIR/.svm
             $TOOLS_SVM install {quoted_version}
@@ -334,8 +335,8 @@ def sol_contract(
         deps: Dependencies (other sol_library or sol_contract rules).
         solc_version: Solidity compiler version (e.g., "0.8.20"). Used with forge's
             --use flag to download via svm. Defaults to DefaultSolcVersion config.
-        solc_tool: Build label for hermetic solc binary (from solc() rule).
-            When provided, uses forge's --solc flag for fully hermetic builds.
+        solc_tool: Build label for solc binary (from solc() rule).
+            When provided, uses the local solc instead of downloading via svm.
             Takes precedence over solc_version.
         solc_flags: Additional flags for solc/forge.
         contract_names: Names of contracts in the source file. Required for
@@ -388,8 +389,8 @@ def sol_contract(
     # Get forge tool from config
     forge_tool = _get_forge_tool()
 
-    # Check for hermetic solc - parameter takes precedence over config
-    hermetic_solc = solc_tool if solc_tool else _get_solc_tool()
+    # Check for local solc - parameter takes precedence over config
+    local_solc = solc_tool if solc_tool else _get_solc_tool()
 
     # Build skip flags for contracts to exclude (SECURITY: quote each item)
     skip_cmd = ""
@@ -414,23 +415,23 @@ def sol_contract(
         all_flags += " " + quoted_solc_flags
 
     # Build the forge command
-    # Use --solc for hermetic solc binary, --use for svm-based version download
+    # --use accepts version strings OR paths to local solc binaries
     setup_cmd = 'mkdir -p src && ([ -d "$SRCS" ] && cp -r "$SRCS"/* src/ 2>/dev/null || cp "$SRCS" src/ 2>/dev/null)'
-    if hermetic_solc:
-        # Hermetic mode: use --solc to point to pre-built solc binary
-        solc_cmd = f'build --solc $TOOLS_SOLC {skip_cmd} {all_flags} --extra-output bin --extra-output-files bin --root . || [ -d out ]'
+    if local_solc:
+        # Use --use with path to local solc binary
+        solc_cmd = f'build --use $TOOLS_SOLC {skip_cmd} {all_flags} --extra-output bin --extra-output-files bin --root . || [ -d out ]'
     else:
-        # Non-hermetic mode: use --use to download via svm
+        # Use --use with version string to download via svm
         quoted_solc_version = _shell_quote(solc_version)
         solc_cmd = f'build --use {quoted_solc_version} {skip_cmd} {all_flags} --extra-output bin --extra-output-files bin --root . || [ -d out ]'
 
     # Extract ABIs and bytecode from JSON files
     abi_bin_extract = 'if [ -d out ]; then for json_file in $(find out -name "*.json" -type f 2>/dev/null); do jq ".abi" "$json_file" > "${json_file%.json}.abi" 2>/dev/null || true; jq -r ".bytecode.object // .bytecode" "$json_file" | sed "s/^0x//" > "${json_file%.json}.bin" 2>/dev/null || true; done; fi'
 
-    # Build tools dict - add solc if using hermetic mode
+    # Build tools dict - add solc if using local binary
     build_tools = {"forge": forge_tool}
-    if hermetic_solc:
-        build_tools["solc"] = hermetic_solc
+    if local_solc:
+        build_tools["solc"] = local_solc
 
     forge_build = genrule(
         name = f"_{name}#forge_build",
@@ -555,7 +556,7 @@ def sol_get(
             Strongly recommended - verifies the download hasn't been tampered with.
         deps: Dependencies (other sol_library or sol_contract rules).
         solc_version: Solidity compiler version. Defaults to plugin config.
-        solc_tool: Build label for hermetic solc binary (from solc() rule).
+        solc_tool: Build label for solc binary (from solc() rule).
         package: Subdirectory within the repo containing sources.
         install: List of subdirectories to install from the package.
         solc_flags: Additional solc flags.
@@ -651,7 +652,7 @@ def sol_test(
         src: Test source file (typically *.t.sol).
         deps: Dependencies (other sol_library or sol_contract rules).
         solc_version: Solidity compiler version. Defaults to plugin config.
-        solc_tool: Build label for hermetic solc binary (from solc() rule).
+        solc_tool: Build label for solc binary (from solc() rule).
         solc_flags: Additional solc flags.
         visibility: Visibility specification.
         timeout: Test timeout in seconds.
@@ -660,8 +661,8 @@ def sol_test(
     if solc_version is None:
         solc_version = _get_default_solc_version()
 
-    # Check for hermetic solc - parameter takes precedence over config
-    hermetic_solc = solc_tool if solc_tool else _get_solc_tool()
+    # Check for local solc - parameter takes precedence over config
+    local_solc = solc_tool if solc_tool else _get_solc_tool()
 
     contract = sol_contract(
         name = f"_{name}#contract",
@@ -697,7 +698,7 @@ def sol_test(
         visibility = visibility,
     )
 
-    # Build test command based on hermetic vs non-hermetic mode
+    # Build test command
     quoted_data_dir = _shell_quote(data_package_root_dir)
     base_cmds = [
         f"mv $(location {sol_src_data}) src",
@@ -706,14 +707,14 @@ def sol_test(
         "mv src/* . && rmdir src",
     ]
 
-    if hermetic_solc:
-        # Hermetic mode: use --solc to point to pre-built solc binary
-        test_tools = {"forge": _get_forge_tool(), "solc": hermetic_solc}
+    if local_solc:
+        # Use --use with path to local solc binary
+        test_tools = {"forge": _get_forge_tool(), "solc": local_solc}
         test_cmd = '&&'.join(base_cmds + [
-            "$TOOLS_FORGE test --solc $TOOLS_SOLC -vv $TEST_ARGS",
+            "$TOOLS_FORGE test --use $TOOLS_SOLC -vv $TEST_ARGS",
         ])
     else:
-        # Non-hermetic mode: use --use to download via svm
+        # Use --use with version string to download via svm
         quoted_test_version = _shell_quote(solc_version)
         test_tools = {"forge": _get_forge_tool()}
         test_cmd = '&&'.join(base_cmds + [

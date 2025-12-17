@@ -44,7 +44,7 @@ AbigenTool = //third_party/go:abigen
 GoEthereumDep = //third_party/go:go-ethereum
 ```
 
-4. (Optional) Use hermetic forge via the [Foundry plugin](https://github.com/becomeliminal/foundry):
+4. (Optional) Use local forge via the [Foundry plugin](https://github.com/becomeliminal/foundry):
 
 ```ini
 [Plugin "solidity"]
@@ -52,7 +52,7 @@ Target = //plugins:solidity
 ForgeTool = //third_party/binary:foundry|forge
 ```
 
-5. (Optional) Use hermetic solc via the svm rule:
+5. (Optional) Use local solc via the svm rule:
 
 ```python
 # In third_party/solidity/BUILD
@@ -167,7 +167,7 @@ All options can be set in `.plzconfig` under `[Plugin "solidity"]`:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `ForgeTool` | `~/.foundry/bin/forge` | Path or build label for forge (assumes foundryup install) |
-| `SolcTool` | (none) | Build label for hermetic solc binary (from `solc()` rule) |
+| `SolcTool` | (none) | Build label for solc binary (from `solc()` rule) |
 | `SvmTool` | (none) | Build label for svm binary (from `svm()` rule) |
 | `DefaultSolcVersion` | `0.8.20` | Default Solidity version when not specified per-rule |
 | `AbigenTool` | (none) | Build label for abigen (required for Go bindings) |
@@ -176,7 +176,7 @@ All options can be set in `.plzconfig` under `[Plugin "solidity"]`:
 | `Optimize` | `true` | Enable Solidity optimizer |
 | `OptimizerRuns` | `100` | Number of optimizer runs |
 | `ImportRemappings` | (none) | Import path remappings (repeatable) |
-| `Sandbox` | `false` | Enable sandbox (requires hermetic solc) |
+| `Sandbox` | `false` | Enable sandbox (requires local solc) |
 
 ### Import Remappings
 
@@ -192,7 +192,7 @@ ImportRemappings = @account-abstraction/=third_party/solidity/account-abstractio
 
 ### svm
 
-Downloads pre-built svm binary for managing solc versions hermetically.
+Downloads pre-built svm binary for managing solc versions.
 
 ```python
 svm(
