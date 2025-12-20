@@ -22,6 +22,43 @@ go_module(
     version = "v0.0.2",
 )
 
+#### CLI tools ####
+
+go_repo(
+    name = "go-humanize",
+    install = ["."],
+    module = "github.com/dustin/go-humanize",
+    version = "v1.0.0",
+)
+
+go_repo(
+    name = "go-flags",
+    install = ["."],
+    module = "github.com/thought-machine/go-flags",
+    version = "v1.6.0",
+)
+
+go_repo(
+    name = "go-logging",
+    install = ["."],
+    module = "gopkg.in/op/go-logging.v1",
+    version = "v1.0.0-20160211212156-b2cb9fa56473",
+)
+
+go_repo(
+    name = "go-cli-init",
+    install = ["flags"],
+    module = "github.com/peterebden/go-cli-init/v5",
+    requirements = [
+        "github.com/dustin/go-humanize",
+        "github.com/thought-machine/go-flags",
+        "gopkg.in/op/go-logging.v1",
+        "golang.org/x/term",
+        "golang.org/x/sys",
+    ],
+    version = "v5.2.1",
+)
+
 #### golang.org/x/xxx ####
 
 go_repo(
@@ -848,6 +885,13 @@ go_repo(
     install = ["."],
     module = "github.com/naoina/go-stringutil",
     version = "v0.1.0",
+)
+
+go_repo(
+    name = "go-toml-v2",
+    install = ["."],
+    module = "github.com/pelletier/go-toml/v2",
+    version = "v2.2.3",
 )
 
 go_repo(

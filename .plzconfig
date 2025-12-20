@@ -48,6 +48,12 @@ Help = Build label for go-ethereum dependency (required by generated Go bindings
 Optional = true
 Inherit = true
 
+[PluginConfig "please_sol_tool"]
+ConfigKey = PleaseSolTool
+DefaultValue = //tools/please_sol:please_sol
+Help = Build label for the please_sol tool (for import prefix auto-detection)
+Inherit = true
+
 [PluginConfig "default_languages"]
 ConfigKey = DefaultLanguages
 DefaultValue = go
@@ -90,3 +96,4 @@ gotool = //third_party/go:gotool|go
 SvmTool = //test:svm
 AbigenTool = //third_party/go:abigen
 GoEthereumDep = //third_party/go:go-ethereum
+PleaseSolTool = //tools/please_sol:please_sol

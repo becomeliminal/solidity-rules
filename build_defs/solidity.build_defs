@@ -1,130 +1,8 @@
 """Solidity build rules for Please.
 
 This plugin provides rules for compiling Solidity smart contracts using Foundry's forge.
-
-SECURITY NOTE:
-- sandbox=False is required for forge to access ~/.svm for solc version downloads
-- Use the `hashes` parameter in sol_get() for supply chain security
-- All user inputs are shell-quoted to prevent injection
 """
 
-# =============================================================================
-# SECURITY HELPERS
-# =============================================================================
-
-def _shell_quote(s: str) -> str:
-    """Shell-escape a string by wrapping in single quotes.
-
-    This prevents shell injection by ensuring the string is treated as a literal.
-    Single quotes inside the string are escaped using the shell idiom: '\\''
-
-    Example: "foo'bar" becomes "'foo'\\''bar'"
-    """
-    if not s:
-        return "''"
-    return "'" + s.replace("'", "'\\''") + "'"
-
-
-def _escape_sed_pattern(s: str) -> str:
-    """Escape special characters for use in sed s/// patterns.
-
-    Escapes: \\ & / and the delimiter we use (/)
-    """
-    result = s
-    result = result.replace('\\', '\\\\')  # Must be first
-    result = result.replace('&', '\\&')
-    result = result.replace('/', '\\/')
-    return result
-
-
-def _validate_no_traversal(path: str, param_name: str):
-    """Validate that a path doesn't contain directory traversal sequences."""
-    if '..' in path:
-        fail(f"{param_name} cannot contain '..': {path}")
-
-
-# =============================================================================
-# VERSION HELPERS
-# =============================================================================
-
-def _version_tuple(v):
-    """Converts a version string like '0.8.20' to a list of integers."""
-    filled = []
-    for point in v.split("."):
-        filled.append(int(point))
-    return filled
-
-
-def _compare_version_lists(a, b):
-    """Returns True if version a >= version b."""
-    i = 0
-    for x in a:
-        if a[i] > b[i]:
-            return True
-        if b[i] > a[i]:
-            return False
-        i += 1
-    return True
-
-
-# =============================================================================
-# CONFIG ACCESSORS
-# =============================================================================
-
-def _get_forge_tool():
-    """Returns the forge tool from config."""
-    return CONFIG.SOLIDITY.FORGE_TOOL
-
-
-def _get_default_solc_version():
-    """Returns the default solc version from config."""
-    return CONFIG.SOLIDITY.DEFAULT_SOLC_VERSION
-
-
-def _get_abigen_tool():
-    """Returns the abigen tool from config, or None if not configured."""
-    tool = CONFIG.SOLIDITY.ABIGEN_TOOL
-    return tool if tool else None
-
-
-def _get_go_ethereum_dep():
-    """Returns the go-ethereum dependency from config, or None if not configured."""
-    dep = CONFIG.SOLIDITY.GO_ETHEREUM_DEP
-    return dep if dep else None
-
-
-def _get_default_languages():
-    """Returns the default languages from config."""
-    return CONFIG.SOLIDITY.DEFAULT_LANGUAGES or ['go']
-
-
-def _get_optimizer_settings():
-    """Returns optimizer settings from config."""
-    optimize = CONFIG.SOLIDITY.OPTIMIZE
-    runs = CONFIG.SOLIDITY.OPTIMIZER_RUNS or 100
-    return optimize, runs
-
-
-def _get_sandbox():
-    """Returns whether to use sandbox from config."""
-    return CONFIG.SOLIDITY.SANDBOX
-
-
-def _get_svm_tool():
-    """Returns the svm tool from config, or None if not configured."""
-    tool = CONFIG.SOLIDITY.SVM_TOOL
-    return tool if tool else None
-
-
-def _get_solc_tool():
-    """Returns the solc tool from config, or None if not configured."""
-    tool = CONFIG.SOLIDITY.SOLC_TOOL
-    return tool if tool else None
-
-
-# =============================================================================
-# HERMETIC TOOLCHAIN RULES
-# =============================================================================
 
 def svm(
         name: str,
@@ -221,7 +99,7 @@ def solc(
         # BUILD
         solc(name = "solc_0.8.20", version = "0.8.20")
     """
-    svm = _get_svm_tool()
+    svm = CONFIG.SOLIDITY.SVM_TOOL
     if not svm:
         fail("solc() requires SvmTool config option in .plzconfig")
 
@@ -246,9 +124,71 @@ def solc(
     )
 
 
-# =============================================================================
-# BUILD RULES
-# =============================================================================
+def solc_versions(
+        versions: list,
+        visibility: list = ["PUBLIC"],
+):
+    """Creates shared solc rules for multiple versions.
+
+    This is a convenience function to pre-download and cache multiple solc versions.
+    Use this in your third_party/solidity BUILD file to avoid repeated downloads.
+
+    Args:
+        versions: List of Solidity versions to download (e.g., ["0.8.20", "0.8.21"]).
+        visibility: Visibility for all created rules.
+
+    Example:
+        # third_party/solidity/BUILD
+        subinclude("//build_defs:solidity")
+
+        solc_versions(
+            versions = ["0.8.20", "0.8.21", "0.8.23"],
+        )
+
+        # Creates targets:
+        # //third_party/solidity:solc_0_8_20
+        # //third_party/solidity:solc_0_8_21
+        # //third_party/solidity:solc_0_8_23
+
+        # Then in .plzconfig:
+        # [Plugin "solidity"]
+        # SolcTool = //third_party/solidity:solc_0_8_20
+
+    Returns:
+        List of created rule names.
+    """
+    rules = []
+    for version in versions:
+        # Convert version to valid rule name (e.g., "0.8.20" -> "solc_0_8_20")
+        name = "solc_" + version.replace(".", "_")
+        solc(
+            name = name,
+            version = version,
+            visibility = visibility,
+        )
+        rules.append(name)
+    return rules
+
+
+def solc_default(version: str):
+    """Returns the target for a shared solc version.
+
+    Use this to reference a pre-cached solc version in build rules.
+
+    Args:
+        version: Solidity version (e.g., "0.8.20").
+
+    Returns:
+        Target string (e.g., "//third_party/solidity:solc_0_8_20").
+
+    Example:
+        # In .plzconfig
+        [Plugin "solidity"]
+        SolcTool = %(call solc_default 0.8.20)
+    """
+    name = "solc_" + version.replace(".", "_")
+    return f"//third_party/solidity:{name}"
+
 
 def sol_library(
         name: str,
@@ -344,9 +284,16 @@ def sol_contract(
     """
     # Apply defaults from config
     if solc_version is None:
-        solc_version = _get_default_solc_version()
+        solc_version = CONFIG.SOLIDITY.DEFAULT_SOLC_VERSION
     if languages is None:
-        languages = _get_default_languages()
+        # Default to no language bindings when contract_names isn't specified.
+        # This prevents "found packages X and Y" Go errors when a source file has
+        # multiple contracts/interfaces that would each get their own package.
+        # Users must explicitly request languages=['go'] AND provide contract_names.
+        if contract_names:
+            languages = CONFIG.SOLIDITY.DEFAULT_LANGUAGES or ['go']
+        else:
+            languages = []
 
     # Extract interface and contract names from source
     file_to_cat = '$SRCS'
@@ -375,12 +322,6 @@ def sol_contract(
         test_only = test_only,
     )
 
-    # Get forge tool from config
-    forge_tool = _get_forge_tool()
-
-    # Check for local solc from config
-    local_solc = _get_solc_tool()
-
     # Build skip flags for contracts to exclude (SECURITY: quote each item)
     skip_cmd = ""
     for skipped in skip:
@@ -388,7 +329,8 @@ def sol_contract(
         skip_cmd += f" --skip {quoted_skip} "
 
     # Configure forge flags from config
-    optimize, optimizer_runs = _get_optimizer_settings()
+    optimize = CONFIG.SOLIDITY.OPTIMIZE
+    optimizer_runs = CONFIG.SOLIDITY.OPTIMIZER_RUNS or 100
     forge_flags = ""
     if optimize:
         forge_flags = f"--optimize --optimizer-runs {optimizer_runs}"
@@ -403,31 +345,20 @@ def sol_contract(
         quoted_solc_flags = _shell_quote(solc_flags)
         all_flags += " " + quoted_solc_flags
 
-    # Build the forge command
-    # --use accepts version strings OR paths to local solc binaries
+    # Build the forge command using shared helpers
     # Copy main source and any dep .sol files from the same package to src/
     # This enables relative imports like "./Counter.sol" to work
     pkg = package_name()
     setup_cmd = f'mkdir -p src && ([ -d "$SRCS" ] && cp -r "$SRCS"/* src/ 2>/dev/null || cp "$SRCS" src/ 2>/dev/null) && (find {pkg} -maxdepth 1 -name "*.sol" -exec cp {{}} src/ \\; 2>/dev/null || true)'
-    if local_solc:
-        # Use --use with path to local solc binary
-        solc_cmd = f'build --use $TOOLS_SOLC {skip_cmd} {all_flags} --extra-output bin --extra-output-files bin --root .'
-    else:
-        # Use --use with version string to download via svm
-        quoted_solc_version = _shell_quote(solc_version)
-        solc_cmd = f'build --use {quoted_solc_version} {skip_cmd} {all_flags} --extra-output bin --extra-output-files bin --root .'
+    solc_use_arg = _get_solc_use_arg(solc_version)
+    solc_cmd = f'build --use {solc_use_arg} {skip_cmd} {all_flags} --extra-output bin --extra-output-files bin --root .'
 
     # Extract ABIs and bytecode from JSON files
     abi_bin_extract = 'if [ -d out ]; then for json_file in $(find out -name "*.json" -type f 2>/dev/null); do jq ".abi" "$json_file" > "${json_file%.json}.abi" 2>/dev/null || true; jq -r ".bytecode.object // .bytecode" "$json_file" | sed "s/^0x//" > "${json_file%.json}.bin" 2>/dev/null || true; done; fi'
 
-    # Build tools dict - add solc if using local binary
-    build_tools = {"forge": forge_tool}
-    if local_solc:
-        build_tools["solc"] = local_solc
-
-    # Collect remappings from deps and build --remappings flag
-    # Remapping files contain lines like "@openzeppelin/contracts/=openzeppelin-contracts/"
-    collect_remappings = 'REMAPPINGS=""; for f in $(find . -name "*.remapping" 2>/dev/null); do while read line; do REMAPPINGS="$REMAPPINGS --remappings $line"; done < "$f"; done'
+    # Use shared helpers for tools and remappings
+    build_tools = _get_forge_tools()
+    collect_remappings = _collect_remappings_cmd()
 
     forge_build = genrule(
         name = f"_{name}#forge_build",
@@ -438,15 +369,15 @@ def sol_contract(
         out = f"{name}_out",
         needs_transitive_deps = True,
         output_is_complete = True,
-        sandbox = _get_sandbox(),
+        sandbox = CONFIG.SOLIDITY.SANDBOX,
         cmd = f'{collect_remappings} && {setup_cmd} && $TOOLS_FORGE {solc_cmd} $REMAPPINGS || [ -d out ] && {abi_bin_extract} && mkdir -p $OUT && ([ -d out ] && mv out/* $OUT || mkdir -p $OUT)',
         test_only = test_only,
     )
     plugins = {'sol_artifacts': forge_build}
 
     # Generate Go bindings if requested and abigen is configured
-    abigen_tool = _get_abigen_tool()
-    go_ethereum_dep = _get_go_ethereum_dep()
+    abigen_tool = CONFIG.SOLIDITY.ABIGEN_TOOL
+    go_ethereum_dep = CONFIG.SOLIDITY.GO_ETHEREUM_DEP
 
     if 'go' in languages and abigen_tool:
         go_srcs = genrule(
@@ -570,10 +501,6 @@ def sol_get(
     for install_path in install:
         _validate_no_traversal(install_path, "install")
 
-    # Default import_prefix to name/
-    if not import_prefix:
-        import_prefix = name + "/"
-
     org, _, repo_name = repo.partition('/')
 
     # SECURITY: Log warning if no hash verification
@@ -623,12 +550,28 @@ def sol_get(
     # This tells forge to resolve imports like "@openzeppelin/contracts/X" to "third_party/openzeppelin-contracts/X"
     # The package path prefix is needed because Please organizes dep files by package
     pkg = package_name()
-    remapping_rule = genrule(
-        name = f"_{name}#remapping",
-        cmd = f'echo "{import_prefix}={pkg}/{name}/" > $OUT',
-        outs = [f"{name}.remapping"],
-        test_only = test_only,
-    )
+    quoted_package = _shell_quote(package)
+    quoted_name = _shell_quote(name)
+    quoted_pkg = _shell_quote(pkg)
+
+    if import_prefix:
+        # Explicit import_prefix provided
+        remapping_rule = genrule(
+            name = f"_{name}#remapping",
+            cmd = f'echo "{import_prefix}={pkg}/{name}/" > $OUT',
+            outs = [f"{name}.remapping"],
+            test_only = test_only,
+        )
+    else:
+        # Auto-detect import_prefix from package.json using please_sol
+        remapping_rule = genrule(
+            name = f"_{name}#remapping",
+            srcs = [zip_file],
+            tools = {"plzsol": CONFIG.SOLIDITY.PLEASE_SOL_TOOL},
+            cmd = f'$TOOLS_PLZSOL detect-prefix --zip=$SRCS --package={quoted_package} --name={quoted_name} --out_dir={quoted_pkg} > $OUT',
+            outs = [f"{name}.remapping"],
+            test_only = test_only,
+        )
 
     # Create sol_library with remapping provider
     _sol_get_library(
@@ -666,9 +609,16 @@ def _sol_get_library(
     """
     # Apply defaults from config
     if solc_version is None:
-        solc_version = _get_default_solc_version()
+        solc_version = CONFIG.SOLIDITY.DEFAULT_SOLC_VERSION
     if languages is None:
-        languages = _get_default_languages()
+        # Default to no language bindings when contract_names isn't specified.
+        # This prevents "found packages X and Y" Go errors when a library has
+        # multiple contracts/interfaces that would each get their own package.
+        # Users must explicitly request languages=['go'] AND provide contract_names.
+        if contract_names:
+            languages = CONFIG.SOLIDITY.DEFAULT_LANGUAGES or ['go']
+        else:
+            languages = []
 
     # Create the solidity source filegroup
     solidity_rule = filegroup(
@@ -756,10 +706,7 @@ def sol_test(
         labels: Additional labels for the test.
     """
     if solc_version is None:
-        solc_version = _get_default_solc_version()
-
-    # Check for local solc from config
-    local_solc = _get_solc_tool()
+        solc_version = CONFIG.SOLIDITY.DEFAULT_SOLC_VERSION
 
     contract = sol_contract(
         name = f"_{name}#contract",
@@ -810,11 +757,10 @@ def sol_test(
         visibility = visibility,
     )
 
-    # Build test command
+    # Build test command using shared helpers
     quoted_data_dir = _shell_quote(data_package_root_dir)
-
-    # Collect remappings for forge test
-    collect_remappings = f'REMAPPINGS=""; for f in $(find $(location {sol_remapping_data}) -name "*.remapping" 2>/dev/null); do while read line; do REMAPPINGS="$REMAPPINGS --remappings $line"; done < "$f"; done'
+    collect_remappings = _collect_remappings_cmd(f"$(location {sol_remapping_data})")
+    solc_use_arg = _get_solc_use_arg(solc_version)
 
     base_cmds = [
         collect_remappings,
@@ -824,24 +770,15 @@ def sol_test(
         "mv src/* . && rmdir src",
     ]
 
-    if local_solc:
-        # Use --use with path to local solc binary
-        test_tools = {"forge": _get_forge_tool(), "solc": local_solc}
-        test_cmd = '&&'.join(base_cmds + [
-            "$TOOLS_FORGE test --root . --use $TOOLS_SOLC -vv $REMAPPINGS $TEST_ARGS",
-        ])
-    else:
-        # Use --use with version string to download via svm
-        quoted_test_version = _shell_quote(solc_version)
-        test_tools = {"forge": _get_forge_tool()}
-        test_cmd = '&&'.join(base_cmds + [
-            f"$TOOLS_FORGE test --root . --use {quoted_test_version} -vv $REMAPPINGS $TEST_ARGS",
-        ])
+    test_tools = _get_forge_tools()
+    test_cmd = '&&'.join(base_cmds + [
+        f"$TOOLS_FORGE test --root . --use {solc_use_arg} -vv $REMAPPINGS $TEST_ARGS",
+    ])
 
     return gentest(
         name = name,
         data = [sol_src_data, sol_artifacts_data, sol_remapping_data],
-        sandbox = _get_sandbox(),
+        sandbox = CONFIG.SOLIDITY.SANDBOX,
         test_tools = test_tools,
         test_cmd = test_cmd,
         no_test_output = True,
@@ -849,3 +786,73 @@ def sol_test(
         labels = labels,
         visibility = visibility,
     )
+
+
+def _shell_quote(s: str) -> str:
+    if not s:
+        return "''"
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def _validate_no_traversal(path: str, param_name: str):
+    if '..' in path:
+        fail(f"{param_name} cannot contain '..': {path}")
+
+
+def _version_tuple(v):
+    return [int(p) for p in v.split(".")]
+
+
+def _compare_version_lists(a, b):
+    for i in range(len(a)):
+        if a[i] > b[i]:
+            return True
+        if b[i] > a[i]:
+            return False
+    return True
+
+
+def _get_forge_tools(include_solc: bool = True) -> dict:
+    """Returns tools dict with forge and optionally solc.
+
+    Args:
+        include_solc: If True and local solc is configured, include it.
+
+    Returns:
+        Dict suitable for tools parameter of genrule/gentest.
+    """
+    tools = {"forge": CONFIG.SOLIDITY.FORGE_TOOL}
+    local_solc = CONFIG.SOLIDITY.SOLC_TOOL
+    if include_solc and local_solc:
+        tools["solc"] = local_solc
+    return tools
+
+
+def _get_solc_use_arg(solc_version: str) -> str:
+    """Returns the --use argument for forge.
+
+    If local solc is configured, returns $TOOLS_SOLC.
+    Otherwise returns the quoted version string.
+
+    Args:
+        solc_version: Solidity version (e.g., "0.8.20").
+
+    Returns:
+        String suitable for --use flag.
+    """
+    local_solc = CONFIG.SOLIDITY.SOLC_TOOL
+    if local_solc:
+        return "$TOOLS_SOLC"
+    return _shell_quote(solc_version)
+
+
+def _collect_remappings_cmd(search_path: str = ".") -> str:
+    """Returns bash command to collect remappings into $REMAPPINGS variable.
+
+    Args:
+        search_path: Path to search for .remapping files.
+
+    Returns:
+        Bash command that sets $REMAPPINGS.
+    """
+    return f'REMAPPINGS=""; for f in $(find {search_path} -name "*.remapping" 2>/dev/null); do while read line; do REMAPPINGS="$REMAPPINGS --remappings $line"; done < "$f"; done'

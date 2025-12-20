@@ -15,22 +15,23 @@ solc(
 )
 
 # Forge standard library - tests automatic import remappings
+# No contract_names → defaults to languages=[] (no Go bindings)
 sol_get(
     name = "forge-std",
     repo = "foundry-rs/forge-std",
     revision = "v1.9.4",
-    import_prefix = "forge-std/",
     package = "src",
     visibility = ["PUBLIC"],
 )
 
-# OpenZeppelin - tests default import_prefix (should be "openzeppelin-contracts/")
+# OpenZeppelin - tests auto-detection (should detect "@openzeppelin/contracts/")
+# No contract_names → defaults to languages=[] (no Go bindings)
 sol_get(
     name = "openzeppelin-contracts",
     repo = "OpenZeppelin/openzeppelin-contracts",
     revision = "v5.0.2",
     package = "contracts",
-    install = ["."],  # Install all to get interfaces, utils, etc.
+    install = ["."],
     visibility = ["PUBLIC"],
 )
 
@@ -62,17 +63,24 @@ sol_test(
     deps = [":counter", ":forge-std"],
 )
 
-# Test sol_get with contract_names but NO go bindings
-# Verifies compilation happens even when languages=[]
+# Solmate - v6 has @rari-capital/solmate in package.json, but please_sol
+# auto-detects this and maps it to "solmate/" via knownMigrations
 sol_get(
     name = "solmate",
     repo = "transmissions11/solmate",
     revision = "v6",
     package = "src",
     install = ["tokens", "utils"],
-    contract_names = ["ERC20"],
-    languages = [],
-    solc_version = "0.8.20",
+    visibility = ["PUBLIC"],
+)
+
+# Solady - tests auto-detection (should detect "solady/")
+sol_get(
+    name = "solady",
+    repo = "Vectorized/solady",
+    revision = "v0.0.227",
+    package = "src",
+    install = ["auth", "tokens", "utils"],
     visibility = ["PUBLIC"],
 )
 
