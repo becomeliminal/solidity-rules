@@ -24,6 +24,7 @@ A [Please](https://please.build) plugin for building Solidity smart contracts us
 plugin_repo(
     name = "solidity",
     owner = "becomeliminal",
+    plugin = "solidity-rules",
     revision = "<commit-sha>",
 )
 ```
