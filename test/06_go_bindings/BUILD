@@ -24,6 +24,6 @@ go_test(
     srcs = ["bindings_test.go"],
     deps = [
         ":simple_storage",
-        "//third_party/go:go-ethereum",
+        "//third_party/solidity/go:go-ethereum",
     ],
 )
