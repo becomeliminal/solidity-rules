@@ -295,18 +295,23 @@ def sol_contract(
         else:
             languages = []
 
-    # Extract interface and contract names from source
+    # Extract interface and contract names from source.
+    # The regex anchors to the start of the line (after optional whitespace and
+    # the "abstract" keyword) so NatSpec comments containing the word
+    # "interface" or "contract" are not matched.
+    _iface_sed = r"sed -n 's#^[[:space:]]*\(abstract[[:space:]]\+\)\{0,1\}interface[[:space:]]\+\([A-Za-z_][A-Za-z0-9_]*\).*#\2#p'"
+    _contract_sed = r"sed -n 's#^[[:space:]]*\(abstract[[:space:]]\+\)\{0,1\}contract[[:space:]]\+\([A-Za-z_][A-Za-z0-9_]*\).*#\2#p'"
     file_to_cat = '$SRCS'
     cmd = ' && '.join([
-        f"cat {file_to_cat} | sed -n 's#.*interface \(.*\) {{#\\1#gp' | sed -e 's/\\s.*$//' > $OUTS",
-        f"cat {file_to_cat} | sed -n 's#.*contract \(.*\) {{#\\1#gp' | sed -e 's/\\s.*$//' >> $OUTS",
+        f"cat {file_to_cat} | {_iface_sed} > $OUTS",
+        f"cat {file_to_cat} | {_contract_sed} >> $OUTS",
         f"path={file_to_cat} && echo $path && base=$(basename $path)",
         'sed -i -e "s/^/$base\\//" $OUTS',
     ])
     if _is_dir:
         singleton_cmd = ' && '.join([
-            f"cat $file | sed -n 's#.*interface \(.*\) {{#\\1#gp' | sed -e 's/\\s.*$//' > tmp",
-            f"cat $file | sed -n 's#.*contract \(.*\) {{#\\1#gp' | sed -e 's/\\s.*$//' >> tmp",
+            f"cat $file | {_iface_sed} > tmp",
+            f"cat $file | {_contract_sed} >> tmp",
             f"path=$file && echo $path && base=$(basename $path)",
             'sed -i -e "s/^/$base\\//" tmp',
             "cat tmp >> $OUTS && cat $OUTS",
