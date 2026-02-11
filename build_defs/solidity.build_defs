@@ -108,7 +108,7 @@ def solc(
     return genrule(
         name = name,
         tools = {"svm": svm},
-        outs = ["solc"],
+        outs = [name],
         # svm install downloads to ~/.svm/version/solc-version
         # We copy it to make it portable
         cmd = f"""
@@ -791,7 +791,7 @@ def sol_test(
     return gentest(
         name = name,
         data = [sol_src_data, sol_artifacts_data, sol_remapping_data],
-        sandbox = True,
+        sandbox = CONFIG.SOLIDITY.SANDBOX,
         test_tools = test_tools,
         test_cmd = test_cmd,
         no_test_output = True,
