@@ -781,6 +781,9 @@ def sol_test(
         # (e.g. test in ens_resolver/ with deps in third_party/).
         'for d in src/*/; do rm -rf "$(basename "$d")" 2>/dev/null; done',
         "mv src/* . && rm -rf src",
+        # Forge defaults to test/ and src/ directories. Override so it
+        # finds .t.sol files regardless of package layout.
+        "printf '[profile.default]\\nsrc = \".\"\\ntest = \".\"\\n' > foundry.toml",
     ]
 
     test_tools = _get_forge_tools()
@@ -791,7 +794,7 @@ def sol_test(
     # Non-matching lines (compilation output, warnings) pass through unchanged.
     gotest_sed = r"""sed -e 's/^\[PASS\] \([^(]*\)(.*/--- PASS: \1 (0.00s)/' -e 's/^\[FAIL[^]]*\] \([^(]*\)(.*/--- FAIL: \1 (0.00s)/'"""
     test_cmd = '&&'.join(base_cmds + [
-        f'set -o pipefail && {forge_cmd} 2>&1 | {gotest_sed} | tee "$RESULTS_FILE"',
+        f'set -o pipefail && {forge_cmd} 2>&1 | {gotest_sed} | tee test.results',
     ])
 
     return gentest(
