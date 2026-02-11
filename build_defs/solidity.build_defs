@@ -741,11 +741,6 @@ def sol_test(
         cmd = "mkdir -p $OUT && mv * $OUT 2>/dev/null || true",
         visibility = visibility,
     )
-    # Get the package directory (e.g., "test" from "//test:_counter_test#solsrcs")
-    canonical_path = canonicalise(sol_src_data).removeprefix('//')
-    pkg_path = canonical_path.split(':')[0]
-    data_package_root_dir = pkg_path.split('/')[0]
-
     # Gather the test's solidity compilation artifacts
     sol_artifacts_data = genrule(
         name = f'_{name}#solartifacts',
@@ -769,7 +764,6 @@ def sol_test(
     )
 
     # Build test command using shared helpers
-    quoted_data_dir = _shell_quote(data_package_root_dir)
     collect_remappings = _collect_remappings_cmd(f"$(location {sol_remapping_data})")
     solc_use_arg = _get_solc_use_arg(solc_version)
 
@@ -777,8 +771,11 @@ def sol_test(
         collect_remappings,
         f"mv $(location {sol_src_data}) src",
         f"mv $(location {sol_artifacts_data}) out",
-        f"rm -r {quoted_data_dir} 2>/dev/null || true",
-        "mv src/* . && rmdir src",
+        # Remove all top-level dirs that will come from src/ to avoid
+        # "cannot overwrite" errors when deps span multiple package roots
+        # (e.g. test in ens_resolver/ with deps in third_party/).
+        'for d in src/*/; do rm -rf "$(basename "$d")" 2>/dev/null; done',
+        "mv src/* . && rm -rf src",
     ]
 
     test_tools = _get_forge_tools()
