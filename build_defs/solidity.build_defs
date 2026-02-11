@@ -784,8 +784,14 @@ def sol_test(
     ]
 
     test_tools = _get_forge_tools()
+    forge_cmd = f"$TOOLS_FORGE test --root . --use {solc_use_arg} -vv $REMAPPINGS $TEST_ARGS"
+    # Transform forge output to Go test format so Please can parse individual test results.
+    # [PASS] funcName() (gas: N)      -> --- PASS: funcName (0.00s)
+    # [FAIL: reason] funcName() (...) -> --- FAIL: funcName (0.00s)
+    # Non-matching lines (compilation output, warnings) pass through unchanged.
+    gotest_sed = r"""sed -e 's/^\[PASS\] \([^(]*\)(.*/--- PASS: \1 (0.00s)/' -e 's/^\[FAIL[^]]*\] \([^(]*\)(.*/--- FAIL: \1 (0.00s)/'"""
     test_cmd = '&&'.join(base_cmds + [
-        f"$TOOLS_FORGE test --root . --use {solc_use_arg} -vv $REMAPPINGS $TEST_ARGS",
+        f'set -o pipefail && {forge_cmd} 2>&1 | {gotest_sed} | tee "$RESULTS_FILE"',
     ])
 
     return gentest(
@@ -793,8 +799,8 @@ def sol_test(
         data = [sol_src_data, sol_artifacts_data, sol_remapping_data],
         sandbox = CONFIG.SOLIDITY.SANDBOX,
         test_tools = test_tools,
+        local = True,
         test_cmd = test_cmd,
-        no_test_output = True,
         timeout = timeout,
         labels = labels,
         visibility = visibility,
