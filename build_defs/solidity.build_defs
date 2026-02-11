@@ -791,8 +791,7 @@ def sol_test(
     return gentest(
         name = name,
         data = [sol_src_data, sol_artifacts_data, sol_remapping_data],
-        sandbox = CONFIG.SOLIDITY.SANDBOX,
-        tools = test_tools,
+        sandbox = True,
         test_tools = test_tools,
         test_cmd = test_cmd,
         no_test_output = True,
