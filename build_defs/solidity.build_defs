@@ -299,21 +299,21 @@ def sol_contract(
     # The regex anchors to the start of the line (after optional whitespace and
     # the "abstract" keyword) so NatSpec comments containing the word
     # "interface" or "contract" are not matched.
-    _iface_sed = r"sed -n 's#^[[:space:]]*\(abstract[[:space:]]\+\)\{0,1\}interface[[:space:]]\+\([A-Za-z_][A-Za-z0-9_]*\).*#\2#p'"
-    _contract_sed = r"sed -n 's#^[[:space:]]*\(abstract[[:space:]]\+\)\{0,1\}contract[[:space:]]\+\([A-Za-z_][A-Za-z0-9_]*\).*#\2#p'"
+    _iface_sed = r"sed -n 's#^[[:space:]]*\(abstract[[:space:]]\{1,\}\)\{0,1\}interface[[:space:]]\{1,\}\([A-Za-z_][A-Za-z0-9_]*\).*#\2#p'"
+    _contract_sed = r"sed -n 's#^[[:space:]]*\(abstract[[:space:]]\{1,\}\)\{0,1\}contract[[:space:]]\{1,\}\([A-Za-z_][A-Za-z0-9_]*\).*#\2#p'"
     file_to_cat = '$SRCS'
     cmd = ' && '.join([
         f"cat {file_to_cat} | {_iface_sed} > $OUTS",
         f"cat {file_to_cat} | {_contract_sed} >> $OUTS",
         f"path={file_to_cat} && echo $path && base=$(basename $path)",
-        'sed -i -e "s/^/$base\\//" $OUTS',
+        'sed "s/^/$base\\//" $OUTS > $OUTS.tmp && mv $OUTS.tmp $OUTS',
     ])
     if _is_dir:
         singleton_cmd = ' && '.join([
             f"cat $file | {_iface_sed} > tmp",
             f"cat $file | {_contract_sed} >> tmp",
             f"path=$file && echo $path && base=$(basename $path)",
-            'sed -i -e "s/^/$base\\//" tmp',
+            'sed "s/^/$base\\//" tmp > tmp2 && mv tmp2 tmp',
             "cat tmp >> $OUTS && cat $OUTS",
         ])
         file_to_cat = '$(find $SRCS -type f -printf "%T@ %p\\n" | sort -nr | cut -d\\  -f2-) '
@@ -395,7 +395,7 @@ def sol_contract(
             output_dirs = ["out/**"],
             cmd = ' && '.join([
                 'mkdir out',
-                f'while read p; do $TOOL --type=instance --abi=$SRCS_FORGE_BUILD/"$p".abi --bin=$SRCS_FORGE_BUILD/"$p".bin --pkg=$(basename "${{p,,}}") --out=out/"$(basename ${{p,,}})".go; done < $SRCS_INTERFACES',
+                f'while read p; do p_lower=$(echo "$p" | tr A-Z a-z) && $TOOL --type=instance --abi=$SRCS_FORGE_BUILD/"$p".abi --bin=$SRCS_FORGE_BUILD/"$p".bin --pkg=$(basename "$p_lower") --out=out/"$(basename "$p_lower")".go; done < $SRCS_INTERFACES',
             ]),
             needs_transitive_deps = True,
             visibility = visibility,
