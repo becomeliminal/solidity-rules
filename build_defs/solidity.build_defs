@@ -316,7 +316,7 @@ def sol_contract(
             'sed "s/^/$base\\//" tmp > tmp2 && mv tmp2 tmp',
             "cat tmp >> $OUTS && cat $OUTS",
         ])
-        file_to_cat = '$(find $SRCS -type f -printf "%T@ %p\\n" | sort -nr | cut -d\\  -f2-) '
+        file_to_cat = '$(find $SRCS -type f | sort -r) '
         cmd = f"touch $OUTS && for file in {file_to_cat}; do {singleton_cmd}; done"
 
     interfaces_rule = genrule(
@@ -359,7 +359,7 @@ def sol_contract(
     solc_cmd = f'build --use {solc_use_arg} {skip_cmd} {all_flags} --extra-output bin --extra-output-files bin --root .'
 
     # Extract ABIs and bytecode from JSON files
-    abi_bin_extract = 'if [ -d out ]; then for json_file in $(find out -name "*.json" -type f 2>/dev/null); do jq ".abi" "$json_file" > "${json_file%.json}.abi" 2>/dev/null || true; jq -r ".bytecode.object // .bytecode" "$json_file" | sed "s/^0x//" > "${json_file%.json}.bin" 2>/dev/null || true; done; fi'
+    abi_bin_extract = 'if [ -d out ]; then for json_file in $(find out -name "*.json" -type f 2>/dev/null); do jq ".abi" "$json_file" > "${json_file%.json}.abi" 2>/dev/null || true; jq -r ".bytecode.object // .bytecode" "$json_file" | sed "s/^0x//" > "${json_file%.json}.bin" 2>/dev/null || true; done; find out -mindepth 2 \\( -name "*.abi" -o -name "*.bin" \\) -exec mv {} out/ \\; 2>/dev/null || true; fi'
 
     # Use shared helpers for tools and remappings
     build_tools = _get_forge_tools()
@@ -395,7 +395,7 @@ def sol_contract(
             output_dirs = ["out/**"],
             cmd = ' && '.join([
                 'mkdir out',
-                f'while read p; do p_lower=$(echo "$p" | tr A-Z a-z) && $TOOL --type=instance --abi=$SRCS_FORGE_BUILD/"$p".abi --bin=$SRCS_FORGE_BUILD/"$p".bin --pkg=$(basename "$p_lower") --out=out/"$(basename "$p_lower")".go; done < $SRCS_INTERFACES',
+                f'while read p; do p_base=$(basename "$p") && p_lower=$(echo "$p_base" | tr A-Z a-z) && $TOOL --type=instance --abi=$SRCS_FORGE_BUILD/"$p_base".abi --bin=$SRCS_FORGE_BUILD/"$p_base".bin --pkg="$p_lower" --out=out/"$p_lower".go; done < $SRCS_INTERFACES',
             ]),
             needs_transitive_deps = True,
             visibility = visibility,
