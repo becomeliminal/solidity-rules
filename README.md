@@ -79,6 +79,26 @@ SvmTool = //third_party/solidity:svm
 SolcTool = //third_party/solidity:solc_0.8.20
 ```
 
+`SolcTool` is one compiler for every rule: each rule's `solc_version` is ignored.
+To have each rule compile with the version it names, create one target per
+version with `solc_versions()` and point `SolcPackage` at their package instead:
+
+```python
+# In third_party/solidity/BUILD
+solc_versions(versions = ["0.7.6", "0.8.20", "0.8.23"])  # solc_0_7_6, solc_0_8_20, ...
+```
+
+```ini
+[Plugin "solidity"]
+Target = //plugins:solidity
+SvmTool = //third_party/solidity:svm
+SolcPackage = //third_party/solidity
+```
+
+A rule whose `solc_version` (or `DefaultSolcVersion`) has no target in that
+package fails to build rather than compiling with another version.
+`SolcPackage` takes precedence over `SolcTool`.
+
 ## Usage
 
 ### Basic Contract
@@ -185,7 +205,8 @@ All options can be set in `.plzconfig` under `[Plugin "solidity"]`:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `ForgeTool` | `~/.foundry/bin/forge` | Path or build label for forge (assumes foundryup install) |
-| `SolcTool` | (none) | Build label for solc binary (from `solc()` rule) |
+| `SolcTool` | (none) | Build label for solc binary (from `solc()` rule), used for every rule |
+| `SolcPackage` | (none) | Package of `solc_versions()` targets; each rule uses the one its `solc_version` names. Overrides `SolcTool` |
 | `SvmTool` | (none) | Build label for svm binary (from `svm()` rule) |
 | `DefaultSolcVersion` | `0.8.20` | Default Solidity version when not specified per-rule |
 | `AbigenTool` | (none) | Build label for abigen (required for Go bindings) |

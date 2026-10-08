@@ -362,7 +362,7 @@ def sol_contract(
     abi_bin_extract = 'if [ -d out ]; then for json_file in $(find out -name "*.json" -type f 2>/dev/null); do jq ".abi" "$json_file" > "${json_file%.json}.abi" 2>/dev/null || true; jq -r ".bytecode.object // .bytecode" "$json_file" | sed "s/^0x//" > "${json_file%.json}.bin" 2>/dev/null || true; done; find out -mindepth 2 \\( -name "*.abi" -o -name "*.bin" \\) -exec mv {} out/ \\; 2>/dev/null || true; fi'
 
     # Use shared helpers for tools and remappings
-    build_tools = _get_forge_tools()
+    build_tools = _get_forge_tools(solc_version)
     collect_remappings = _collect_remappings_cmd()
 
     forge_build = genrule(
@@ -786,7 +786,7 @@ def sol_test(
         "printf '[profile.default]\\nsrc = \".\"\\ntest = \".\"\\n' > foundry.toml",
     ]
 
-    test_tools = _get_forge_tools()
+    test_tools = _get_forge_tools(solc_version)
     forge_cmd = f"$TOOLS_FORGE test --root . --use {solc_use_arg} -vv $REMAPPINGS $TEST_ARGS"
     # Transform forge output to Go test format so Please can parse individual test results.
     # [PASS] funcName() (gas: N)      -> --- PASS: funcName (0.00s)
@@ -834,18 +834,39 @@ def _compare_version_lists(a, b):
     return True
 
 
-def _get_forge_tools(include_solc: bool = True) -> dict:
-    """Returns tools dict with forge and optionally solc.
+def _local_solc(solc_version: str) -> str:
+    """Returns the solc target a rule compiles with, or "" for forge to download one.
+
+    SolcPackage, when set, holds one target per version (as solc_versions()
+    names them), and the rule's own solc_version picks among them: a version the
+    package does not define fails the build rather than compiling with another.
+    Otherwise SolcTool, one compiler for every rule.
 
     Args:
-        include_solc: If True and local solc is configured, include it.
+        solc_version: Solidity version (e.g., "0.8.20").
+    """
+    package = CONFIG.SOLIDITY.SOLC_PACKAGE
+    if package:
+        # plz canonicalises a label-like config value ("//third_party/solidity"
+        # arrives as ".../third_party/solidity:solidity"), so drop the name.
+        if ":" in package:
+            package = ":".join(package.split(":")[:-1])
+        return package + ":solc_" + solc_version.replace(".", "_")
+    return CONFIG.SOLIDITY.SOLC_TOOL or ""
+
+
+def _get_forge_tools(solc_version: str) -> dict:
+    """Returns tools dict with forge and, when one is configured, solc.
+
+    Args:
+        solc_version: Solidity version the rule compiles with.
 
     Returns:
         Dict suitable for tools parameter of genrule/gentest.
     """
     tools = {"forge": CONFIG.SOLIDITY.FORGE_TOOL}
-    local_solc = CONFIG.SOLIDITY.SOLC_TOOL
-    if include_solc and local_solc:
+    local_solc = _local_solc(solc_version)
+    if local_solc:
         tools["solc"] = local_solc
     return tools
 
@@ -853,8 +874,8 @@ def _get_forge_tools(include_solc: bool = True) -> dict:
 def _get_solc_use_arg(solc_version: str) -> str:
     """Returns the --use argument for forge.
 
-    If local solc is configured, returns $TOOLS_SOLC.
-    Otherwise returns the quoted version string.
+    If a local solc is configured (SolcPackage or SolcTool), returns $TOOLS_SOLC.
+    Otherwise returns the quoted version string, which forge downloads.
 
     Args:
         solc_version: Solidity version (e.g., "0.8.20").
@@ -862,8 +883,7 @@ def _get_solc_use_arg(solc_version: str) -> str:
     Returns:
         String suitable for --use flag.
     """
-    local_solc = CONFIG.SOLIDITY.SOLC_TOOL
-    if local_solc:
+    if _local_solc(solc_version):
         return "$TOOLS_SOLC"
     return _shell_quote(solc_version)
 
