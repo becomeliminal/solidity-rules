@@ -7,11 +7,13 @@ svm(
     visibility = ["PUBLIC"],
 )
 
-# Test solc rule (requires SvmTool config - see .plzconfig)
-solc(
-    name = "solc_0.8.20",
-    version = "0.8.20",
-    visibility = ["PUBLIC"],
+# One solc per version the tests compile with. SolcPackage = //test (see
+# .plzconfig) makes each rule use the one its solc_version names.
+solc_versions(
+    versions = [
+        "0.8.20",
+        "0.8.23",
+    ],
 )
 
 # Forge standard library - tests automatic import remappings
