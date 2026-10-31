@@ -66,6 +66,55 @@ optimizer = false
 	}
 }
 
+func TestCompileFlags_DefaultEVMWhenNoneNamed(t *testing.T) {
+	got, err := CompileFlags(FlagInput{
+		DefaultOptimize:      true,
+		DefaultOptimizerRuns: 100,
+		DefaultEVMVersion:    "paris",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "--optimize --optimizer-runs 100 --evm-version paris"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestCompileFlags_TomlEVMWinsOverDefault(t *testing.T) {
+	toml := []byte(`
+[profile.default]
+evm_version = "cancun"
+`)
+	got, err := CompileFlags(FlagInput{
+		FoundryTOML:          toml,
+		DefaultOptimize:      true,
+		DefaultOptimizerRuns: 100,
+		DefaultEVMVersion:    "paris",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "--optimize --optimizer-runs 100 --evm-version cancun"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestCompileFlags_NoDefaultEVMLeavesItToSolc(t *testing.T) {
+	got, err := CompileFlags(FlagInput{
+		DefaultOptimize:      true,
+		DefaultOptimizerRuns: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "--optimize --optimizer-runs 100"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestParse_BasicConfig(t *testing.T) {
 	input := `
 [profile.default]

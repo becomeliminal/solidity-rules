@@ -69,6 +69,7 @@ var opts = struct {
 		OptimizerRuns        string `long:"optimizer-runs" description:"Rule optimizer_runs, or empty"`
 		DefaultOptimize      string `long:"default-optimize" description:"Plugin optimizer default: true or false"`
 		DefaultOptimizerRuns int    `long:"default-optimizer-runs" description:"Plugin optimizer_runs default"`
+		DefaultEVMVersion    string `long:"default-evm-version" description:"Plugin evm_version default, or empty for solc's own"`
 	} `command:"resolve-flags" description:"Print forge compiler flags"`
 }{
 	Usage: `
@@ -247,6 +248,7 @@ var subCommands = map[string]func() int{
 			OptimizerRuns:        rf.OptimizerRuns,
 			DefaultOptimize:      defaultOptimize,
 			DefaultOptimizerRuns: rf.DefaultOptimizerRuns,
+			DefaultEVMVersion:    rf.DefaultEVMVersion,
 		})
 		if err != nil {
 			log.Fatalf("resolve-flags: %v", err)

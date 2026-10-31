@@ -86,7 +86,27 @@ def svm(
 # versions, or linux_arm64 before 0.8.31. Those four binaries are the ones
 # svm installs: alloy-rs/solc-builds e4b80d33 for darwin_arm64, and
 # nikitastupin/solc 2287d432 for linux_arm64. sha256 is the file itself.
+# Before 0.8.5 no darwin_arm64 build exists anywhere, so darwin_arm64 is the
+# darwin_amd64 binary, run by Rosetta 2, as svm installs it.
 _SOLC_BUILDS = {
+    "0.7.6": {
+        "linux_amd64": {
+            "url": "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.7.6+commit.7338295f",
+            "sha256": "bd69ea85427bf2f4da74cb426ad951dd78db9dfdd01d791208eccc2d4958a6bb",
+        },
+        "linux_arm64": {
+            "url": "https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/solc-v0.7.6",
+            "sha256": "be0f9d18b3046ba7e840b5663d48754409fca2ca05205f04c6cf8524d1f48231",
+        },
+        "darwin_amd64": {
+            "url": "https://binaries.soliditylang.org/macosx-amd64/solc-macosx-amd64-v0.7.6+commit.7338295f",
+            "sha256": "a6a8f9f9388c5fcd9222474e00270242c832e936b0f5257c20374d27ee5bd1ab",
+        },
+        "darwin_arm64": {
+            "url": "https://binaries.soliditylang.org/macosx-amd64/solc-macosx-amd64-v0.7.6+commit.7338295f",
+            "sha256": "a6a8f9f9388c5fcd9222474e00270242c832e936b0f5257c20374d27ee5bd1ab",
+        },
+    },
     "0.8.20": {
         "linux_amd64": {
             "url": "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.20+commit.a1b79de6",
@@ -144,7 +164,7 @@ def solc(
     """
     builds = _SOLC_BUILDS.get(version)
     if not builds:
-        pinned = ", ".join(sorted(_SOLC_BUILDS))
+        pinned = ", ".join(sorted(_SOLC_BUILDS.keys()))
         fail(f"solc {version} is not pinned. Pinned versions: {pinned}")
     platform = CONFIG.OS + "_" + CONFIG.ARCH
     info = builds.get(platform)
@@ -430,6 +450,12 @@ def sol_contract(
     go_ethereum_dep = _for_target_platform(CONFIG.SOLIDITY.GO_ETHEREUM_DEP) if CONFIG.SOLIDITY.GO_ETHEREUM_DEP else None
 
     if 'go' in languages and abigen_tool:
+        # Space-separated word lists, matched whole. The declarations come
+        # from every source file, but forge compiles only what the rule's
+        # sources import, less what it skips: a declaration with no artifact
+        # has nothing to bind, unless the rule names it in contract_names.
+        skipped_words = _shell_quote(" " + " ".join(skip) + " ")
+        wanted_words = _shell_quote(" " + " ".join(contract_names) + " ")
         go_srcs = genrule(
             name = f"_{name}#gosrcs",
             srcs = {
@@ -443,10 +469,14 @@ def sol_contract(
                 "mkdir out",
                 "while IFS=$(printf '\\t') read -r kind name; do",
                 '  if [ -z "$name" ]; then continue; fi',
+                '  case ' + skipped_words + ' in *" $name "*) continue ;; esac',
                 '  p_lower=$(printf "%s" "$name" | tr A-Z a-z)',
                 '  abi="$SRCS_FORGE_BUILD/$name.abi"',
                 '  bin="$SRCS_FORGE_BUILD/$name.bin"',
-                '  if [ ! -f "$abi" ] || [ ! -f "$bin" ]; then echo "no artifact for $kind $name" >&2; exit 1; fi',
+                '  if [ ! -f "$abi" ] || [ ! -f "$bin" ]; then',
+                '    case ' + wanted_words + ' in *" $name "*) echo "no artifact for $kind $name, which contract_names asks for" >&2; exit 1 ;; esac',
+                '    continue',
+                '  fi',
                 '  $TOOL --type=instance --abi="$abi" --bin="$bin" --pkg="$p_lower" --out="out/$p_lower.go"',
                 'done < "$SRCS_INTERFACES"',
             ]),
@@ -842,22 +872,30 @@ def sol_test(
     test_tools = _get_forge_tools(solc_version)
     test_tools["plzsol"] = CONFIG.SOLIDITY.PLEASE_SOL_TOOL
 
+    # forge runs in its own root, the staged sources, never in the test's
+    # directory: a remote test's tools are laid out in that directory, at
+    # paths such as third_party/... that a source package can share. The
+    # tools are made absolute before the cd.
+    absolute_tools = [
+        'case "$' + tool + '" in /*) ;; *) ' + tool + '="$PWD/$' + tool + '" ;; esac'
+        for tool in ["TOOLS_FORGE", "TOOLS_PLZSOL"] + (["TOOLS_SOLC"] if "solc" in test_tools else [])
+    ]
     test_lines = [
         "set -e",
         _remapping_args_cmd(f"$(location {sol_remapping_data})"),
-        f"mv $(location {sol_src_data}) srcstage",
-        # Deps arrive under their package directories. Drop a same-named
-        # top-level directory before flattening, or mv refuses to overwrite it.
-        'for d in srcstage/*/; do rm -rf "$(basename "$d")" 2>/dev/null || true; done',
-        "mv srcstage/* . && rm -rf srcstage",
-        "printf '[profile.default]\\nsrc = \".\"\\ntest = \".\"\\n' > foundry.toml",
         "FLAGS=$(" + resolve_cmd + ")",
+    ] + absolute_tools + [
+        f"mv $(location {sol_src_data}) forge_root",
+        "mv remappings.txt forge_root/",
+        'results="$PWD/test.results"',
+        "cd forge_root",
+        "printf '[profile.default]\\nsrc = \".\"\\ntest = \".\"\\n' > foundry.toml",
         "set +e",
         "$TOOLS_PLZSOL forge-wrap --forge \"$TOOLS_FORGE\" --remapping-file remappings.txt -- test --root . --use "
         + solc_use_arg + " --json $FLAGS " + quoted_solc_flags + " $REMAP_ARGS $TEST_ARGS > forge.json",
         "code=$?",
         "set -e",
-        '$TOOLS_PLZSOL forge-results --json forge.json --out test.results',
+        '$TOOLS_PLZSOL forge-results --json forge.json --out "$results"',
         'exit "$code"',
     ]
 
@@ -911,6 +949,7 @@ def _resolve_flags_cmd(evm_version: str, optimizer, optimizer_runs, toml_shell: 
     """
     default_opt = "true" if CONFIG.SOLIDITY.OPTIMIZE else "false"
     default_runs = str(CONFIG.SOLIDITY.OPTIMIZER_RUNS or 100)
+    default_evm = CONFIG.SOLIDITY.DEFAULT_EVM_VERSION or ""
     toml = ("--foundry-toml " + toml_shell + " ") if toml_shell else ""
     return (
         "$TOOLS_PLZSOL resolve-flags "
@@ -919,7 +958,8 @@ def _resolve_flags_cmd(evm_version: str, optimizer, optimizer_runs, toml_shell: 
         + "--optimize " + _shell_quote(_opt_word(optimizer)) + " "
         + "--optimizer-runs " + _shell_quote(_runs_word(optimizer_runs)) + " "
         + "--default-optimize=" + default_opt + " "
-        + "--default-optimizer-runs " + default_runs
+        + "--default-optimizer-runs " + default_runs + " "
+        + "--default-evm-version " + _shell_quote(default_evm)
     )
 
 

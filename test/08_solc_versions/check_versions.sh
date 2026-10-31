@@ -11,7 +11,7 @@ compiled_by() { # bytecode file -> "x.y.z"
 }
 
 fail=0
-for pair in "0820:0.8.20" "0823:0.8.23"; do
+for pair in "076:0.7.6" "0820:0.8.20" "0823:0.8.23"; do
     tag="${pair%%:*}"
     want="${pair#*:}"
     # GIVEN a contract whose rule says solc_version = "$want"

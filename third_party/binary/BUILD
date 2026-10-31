@@ -19,6 +19,7 @@ foundry(
 # One solc per version the tests compile with. SolcPackage is this package.
 solc_versions(
     versions = [
+        "0.7.6",
         "0.8.20",
         "0.8.23",
     ],

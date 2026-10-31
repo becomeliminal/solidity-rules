@@ -3,6 +3,14 @@ subinclude("//build_defs:solidity")
 # Each rule compiles with the solc its solc_version names (SolcPackage). The
 # pragmas are exact, so a rule built with any other version fails to compile.
 sol_contract(
+    name = "pinned_076",
+    src = "Pinned076.sol",
+    solc_version = "0.7.6",
+    languages = [],
+    visibility = ["PUBLIC"],
+)
+
+sol_contract(
     name = "pinned_0820",
     src = "Pinned0820.sol",
     solc_version = "0.8.20",
@@ -23,6 +31,7 @@ gentest(
     name = "solc_versions_test",
     data = [
         "check_versions.sh",
+        ":_pinned_076#forge_build",
         ":_pinned_0820#forge_build",
         ":_pinned_0823#forge_build",
     ],
