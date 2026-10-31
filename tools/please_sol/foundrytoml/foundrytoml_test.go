@@ -5,6 +5,67 @@ import (
 	"testing"
 )
 
+func TestCompileFlags_TomlEVMKeepsOptimizerDefault(t *testing.T) {
+	toml := []byte(`
+[profile.default]
+evm_version = "paris"
+`)
+	got, err := CompileFlags(FlagInput{
+		FoundryTOML:          toml,
+		DefaultOptimize:      true,
+		DefaultOptimizerRuns: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "--optimize --optimizer-runs 100 --evm-version paris"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestCompileFlags_TomlOptimizerOff(t *testing.T) {
+	toml := []byte(`
+[profile.default]
+optimizer = false
+optimizer_runs = 999
+`)
+	got, err := CompileFlags(FlagInput{
+		FoundryTOML:          toml,
+		DefaultOptimize:      true,
+		DefaultOptimizerRuns: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("got %q, want no flags", got)
+	}
+}
+
+func TestCompileFlags_ExplicitWins(t *testing.T) {
+	toml := []byte(`
+[profile.default]
+evm_version = "paris"
+optimizer = false
+`)
+	got, err := CompileFlags(FlagInput{
+		FoundryTOML:          toml,
+		EVMVersion:           "shanghai",
+		Optimize:             "true",
+		OptimizerRuns:        "50",
+		DefaultOptimize:      false,
+		DefaultOptimizerRuns: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "--optimize --optimizer-runs 50 --evm-version shanghai"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestParse_BasicConfig(t *testing.T) {
 	input := `
 [profile.default]

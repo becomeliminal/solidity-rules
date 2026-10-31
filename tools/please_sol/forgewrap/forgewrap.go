@@ -125,7 +125,7 @@ func (w *Wrapper) suggestDeps(importPath string) []string {
 
 	for prefix, dep := range prefixToDep {
 		if strings.HasPrefix(importPath, prefix) {
-			suggestions = append(suggestions, fmt.Sprintf("//third_party/solidity:%s", dep))
+			suggestions = append(suggestions, ":"+dep)
 			break
 		}
 	}

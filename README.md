@@ -267,13 +267,19 @@ sol_contract(
     deps = [],               # Dependencies
     solc_version = "0.8.20", # Solidity version (uses svm)
     solc_flags = "",         # Additional solc flags
-    contract_names = [],     # For multi-contract files
+    evm_version = "",        # Empty keeps the compiler default (Shanghai on 0.8.20, which emits PUSH0)
+    foundry_toml = "",       # Used for evm_version and optimizer when the rule arguments are empty
+    optimizer = None,        # True or False. Empty uses foundry.toml, then the plugin default
+    optimizer_runs = None,
+    contract_names = [],     # Contracts, interfaces, or libraries to bind
     skip = [],               # Contracts to skip
     languages = ["go"],      # Output languages
     test_only = False,
     visibility = [],
 )
 ```
+
+A failed compile fails the target. `contract_names` may name a library that has an external function; comments and strings are not treated as declarations.
 
 ### sol_get
 
@@ -307,17 +313,23 @@ sol_test(
     deps = [],
     solc_version = "0.8.20",
     solc_flags = "",
+    evm_version = "",
+    foundry_toml = "",
+    optimizer = None,
+    optimizer_runs = None,
     timeout = 0,
     labels = [],
     visibility = [],
 )
 ```
 
+`sol_test` runs one `forge test`. A failing test fails the target. Please sees each test's revert reason and its real duration.
+
 ## How It Works
 
-1. **Compilation**: Uses Foundry's `forge build --use <version>` which leverages svm (Solidity Version Manager) to automatically download and cache the specified solc version.
+1. **Compilation**: Uses Foundry's `forge build --use <version>` which leverages svm (Solidity Version Manager) to automatically download and cache the specified solc version. The EVM version is the compiler default unless `evm_version` or `foundry.toml` sets one. Optimizer settings on the rule win over `foundry.toml`, which wins over the plugin default. A toml that only sets `evm_version` does not turn the optimizer off.
 
-2. **ABI/Bytecode Extraction**: After compilation, ABIs and bytecode are extracted from Forge's JSON output files.
+2. **ABI/Bytecode Extraction**: After a successful compile, ABIs and bytecode are extracted from Forge's JSON artifacts. A failed compile fails the target.
 
 3. **Go Bindings**: If configured, uses `abigen` to generate Go bindings from the compiled ABIs and bytecode.
 

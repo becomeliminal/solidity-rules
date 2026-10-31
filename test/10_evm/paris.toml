@@ -1,0 +1,4 @@
+[profile.default]
+evm_version = "paris"
+optimizer = true
+optimizer_runs = 100

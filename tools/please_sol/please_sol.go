@@ -11,9 +11,12 @@ import (
 
 	"github.com/peterebden/go-cli-init/v5/flags"
 
+	"tools/please_sol/artifacts"
+	"tools/please_sol/decls"
 	"tools/please_sol/detectprefix"
 	"tools/please_sol/forgewrap"
 	"tools/please_sol/foundrytoml"
+	"tools/please_sol/results"
 )
 
 var opts = struct {
@@ -27,9 +30,13 @@ var opts = struct {
 	} `command:"detect-prefix" description:"Detect import prefix from a Solidity library's package.json"`
 
 	ForgeWrap struct {
-		ForgePath     string   `short:"f" long:"forge" required:"true" description:"Path to the forge binary"`
-		RemappingFile string   `short:"r" long:"remapping-file" description:"Path to file containing remappings (one per line)"`
-		Args          []string `positional-args:"true" description:"Arguments to pass to forge"`
+		ForgePath     string `short:"f" long:"forge" required:"true" description:"Path to the forge binary"`
+		RemappingFile string `short:"r" long:"remapping-file" description:"Path to file containing remappings (one per line)"`
+		// positional-args belongs on a struct. A slice field with that tag is
+		// ignored, and ParseFlagsOrDie then rejects forge's own flags.
+		Args struct {
+			Rest []string `description:"Arguments passed to forge"`
+		} `positional-args:"yes" required:"yes"`
 	} `command:"forge-wrap" description:"Run forge with enhanced error messages"`
 
 	ParseFoundry struct {
@@ -37,14 +44,44 @@ var opts = struct {
 		Profile string `short:"p" long:"profile" description:"Profile to extract (default: default)"`
 		Output  string `short:"o" long:"output" description:"Output format: json, solc-version, remappings, optimizer (default: json)"`
 	} `command:"parse-foundry" description:"Parse foundry.toml and extract configuration"`
+
+	ExtractDecls struct {
+		Paths struct {
+			Files []string `description:"Solidity files or directories"`
+		} `positional-args:"yes" required:"yes"`
+	} `command:"extract-decls" description:"List contract, interface, and library declarations"`
+
+	ExtractArtifacts struct {
+		Out  string `long:"out" required:"true" description:"Forge out directory"`
+		Dest string `long:"dest" required:"true" description:"Directory for .abi and .bin files"`
+	} `command:"extract-artifacts" description:"Flatten Forge artifacts to ABI and bytecode files"`
+
+	ForgeResults struct {
+		JSON string `long:"json" required:"true" description:"Path to forge test --json output"`
+		Out  string `long:"out" required:"true" description:"Go test results file to write"`
+	} `command:"forge-results" description:"Convert forge test JSON to Go test results"`
+
+	ResolveFlags struct {
+		FoundryTOML          string `long:"foundry-toml" description:"Optional foundry.toml"`
+		Profile              string `long:"profile" description:"Profile (default: default)"`
+		EVMVersion           string `long:"evm-version" description:"Rule evm_version, wins over the toml"`
+		Optimize             string `long:"optimize" description:"true, false, or empty"`
+		OptimizerRuns        string `long:"optimizer-runs" description:"Rule optimizer_runs, or empty"`
+		DefaultOptimize      string `long:"default-optimize" description:"Plugin optimizer default: true or false"`
+		DefaultOptimizerRuns int    `long:"default-optimizer-runs" description:"Plugin optimizer_runs default"`
+	} `command:"resolve-flags" description:"Print forge compiler flags"`
 }{
 	Usage: `
 please_sol is used by the solidity build rules to perform complex parsing operations.
 
 Supported commands:
-  detect-prefix  Auto-detect import prefixes from package.json files
-  forge-wrap     Run forge with enhanced error messages
-  parse-foundry  Parse foundry.toml configuration files
+  detect-prefix      Auto-detect import prefixes from package.json files
+  forge-wrap         Run forge with enhanced error messages
+  parse-foundry      Parse foundry.toml configuration files
+  extract-decls      List contract, interface, and library declarations
+  extract-artifacts  Flatten Forge artifacts to ABI and bytecode files
+  forge-results      Convert forge test JSON to Go test results
+  resolve-flags      Print forge compiler flags
 `,
 }
 
@@ -79,7 +116,7 @@ var subCommands = map[string]func() int{
 		}
 
 		wrapper := forgewrap.New(remappings)
-		result, err := wrapper.Run(fw.ForgePath, fw.Args)
+		result, err := wrapper.Run(fw.ForgePath, fw.Args.Rest)
 		if err != nil {
 			log.Fatalf("failed to run forge: %v", err)
 		}
@@ -156,6 +193,80 @@ var subCommands = map[string]func() int{
 
 		return 0
 	},
+	"extract-decls": func() int {
+		found, err := decls.ExtractPaths(opts.ExtractDecls.Paths.Files)
+		if err != nil {
+			log.Fatalf("extract-decls: %v", err)
+		}
+		fmt.Print(decls.Format(found))
+		return 0
+	},
+	"extract-artifacts": func() int {
+		a := opts.ExtractArtifacts
+		if err := artifacts.Extract(a.Out, a.Dest); err != nil {
+			log.Fatalf("extract-artifacts: %v", err)
+		}
+		return 0
+	},
+	"forge-results": func() int {
+		f := opts.ForgeResults
+		in, err := os.Open(f.JSON)
+		if err != nil {
+			log.Fatalf("forge-results: %v", err)
+		}
+		defer in.Close()
+		out, err := os.Create(f.Out)
+		if err != nil {
+			log.Fatalf("forge-results: %v", err)
+		}
+		defer out.Close()
+		if err := results.Convert(in, out); err != nil {
+			log.Fatalf("forge-results: %v", err)
+		}
+		return 0
+	},
+	"resolve-flags": func() int {
+		rf := opts.ResolveFlags
+		var data []byte
+		if rf.FoundryTOML != "" {
+			var err error
+			data, err = os.ReadFile(rf.FoundryTOML)
+			if err != nil {
+				log.Fatalf("resolve-flags: %v", err)
+			}
+		}
+		defaultOptimize, err := parseBoolFlag("default-optimize", rf.DefaultOptimize, true)
+		if err != nil {
+			log.Fatalf("resolve-flags: %v", err)
+		}
+		flags, err := foundrytoml.CompileFlags(foundrytoml.FlagInput{
+			FoundryTOML:          data,
+			Profile:              rf.Profile,
+			EVMVersion:           rf.EVMVersion,
+			Optimize:             rf.Optimize,
+			OptimizerRuns:        rf.OptimizerRuns,
+			DefaultOptimize:      defaultOptimize,
+			DefaultOptimizerRuns: rf.DefaultOptimizerRuns,
+		})
+		if err != nil {
+			log.Fatalf("resolve-flags: %v", err)
+		}
+		fmt.Println(flags)
+		return 0
+	},
+}
+
+func parseBoolFlag(name, value string, fallback bool) (bool, error) {
+	switch value {
+	case "", "default":
+		return fallback, nil
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be true or false, got %q", name, value)
+	}
 }
 
 func main() {
