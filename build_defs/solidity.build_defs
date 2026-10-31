@@ -382,7 +382,7 @@ def sol_contract(
 
     # Generate Go bindings if requested and abigen is configured
     abigen_tool = CONFIG.SOLIDITY.ABIGEN_TOOL
-    go_ethereum_dep = CONFIG.SOLIDITY.GO_ETHEREUM_DEP
+    go_ethereum_dep = _for_target_platform(CONFIG.SOLIDITY.GO_ETHEREUM_DEP) if CONFIG.SOLIDITY.GO_ETHEREUM_DEP else None
 
     if 'go' in languages and abigen_tool:
         go_srcs = genrule(
@@ -898,3 +898,19 @@ def _collect_remappings_cmd(search_path: str = ".") -> str:
         Bash command that sets $REMAPPINGS.
     """
     return f'REMAPPINGS=""; for f in $(find {search_path} -name "*.remapping" 2>/dev/null); do while read line; do REMAPPINGS="$REMAPPINGS --remappings $line"; done < "$f"; done'
+
+
+def _for_target_platform(label:str):
+    """A dependency's label from config, for the platform this package builds
+    for. Please reads a config label as the host repo's (inside a subrepo it
+    arrives as /////pkg:name), so inside an architecture subrepo such as
+    ///linux_amd64 the bindings would link go-ethereum built for the host.
+    go-rules rewrites its Stdlib the same way. Building for the host, the
+    label is returned as it is."""
+    if CONFIG.OS == CONFIG.HOSTOS and CONFIG.ARCH == CONFIG.HOSTARCH:
+        return label
+    if label.startswith("/////"):
+        label = label.removeprefix("///")
+    if not label.startswith("//") or label.startswith("///"):
+        fail(f"GoEthereumDep {label} is not a //-rooted label; it cannot be placed in ///{CONFIG.OS}_{CONFIG.ARCH}")
+    return f"///{CONFIG.OS}_{CONFIG.ARCH}{label}"
