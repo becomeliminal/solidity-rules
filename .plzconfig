@@ -80,6 +80,12 @@ DefaultValue = 100
 Help = Number of optimizer runs
 Inherit = true
 
+[PluginConfig "default_evm_version"]
+ConfigKey = DefaultEvmVersion
+Optional = true
+Help = EVM version a rule compiles for when neither it nor its foundry.toml names one (e.g. paris, cancun). Unset, each solc's own default.
+Inherit = true
+
 [PluginConfig "sandbox"]
 ConfigKey = Sandbox
 DefaultValue = true

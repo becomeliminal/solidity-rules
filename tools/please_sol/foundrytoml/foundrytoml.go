@@ -141,6 +141,9 @@ type FlagInput struct {
 	OptimizerRuns        string
 	DefaultOptimize      bool
 	DefaultOptimizerRuns int
+	// DefaultEVMVersion applies when neither the rule nor the toml names
+	// one. Empty leaves it to solc.
+	DefaultEVMVersion string
 }
 
 // CompileFlags returns a shell-safe forge flag string.
@@ -163,6 +166,9 @@ func CompileFlags(in FlagInput) (string, error) {
 			}
 			evm = strings.TrimSpace(s)
 		}
+	}
+	if evm == "" {
+		evm = strings.TrimSpace(in.DefaultEVMVersion)
 	}
 	if evm != "" && !evmVersionRe.MatchString(evm) {
 		return "", fmt.Errorf("evm_version %q has characters forge flags cannot carry safely", evm)

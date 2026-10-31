@@ -86,7 +86,27 @@ def svm(
 # versions, or linux_arm64 before 0.8.31. Those four binaries are the ones
 # svm installs: alloy-rs/solc-builds e4b80d33 for darwin_arm64, and
 # nikitastupin/solc 2287d432 for linux_arm64. sha256 is the file itself.
+# Before 0.8.5 no darwin_arm64 build exists anywhere, so darwin_arm64 is the
+# darwin_amd64 binary, run by Rosetta 2, as svm installs it.
 _SOLC_BUILDS = {
+    "0.7.6": {
+        "linux_amd64": {
+            "url": "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.7.6+commit.7338295f",
+            "sha256": "bd69ea85427bf2f4da74cb426ad951dd78db9dfdd01d791208eccc2d4958a6bb",
+        },
+        "linux_arm64": {
+            "url": "https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/solc-v0.7.6",
+            "sha256": "be0f9d18b3046ba7e840b5663d48754409fca2ca05205f04c6cf8524d1f48231",
+        },
+        "darwin_amd64": {
+            "url": "https://binaries.soliditylang.org/macosx-amd64/solc-macosx-amd64-v0.7.6+commit.7338295f",
+            "sha256": "a6a8f9f9388c5fcd9222474e00270242c832e936b0f5257c20374d27ee5bd1ab",
+        },
+        "darwin_arm64": {
+            "url": "https://binaries.soliditylang.org/macosx-amd64/solc-macosx-amd64-v0.7.6+commit.7338295f",
+            "sha256": "a6a8f9f9388c5fcd9222474e00270242c832e936b0f5257c20374d27ee5bd1ab",
+        },
+    },
     "0.8.20": {
         "linux_amd64": {
             "url": "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.20+commit.a1b79de6",
@@ -144,7 +164,7 @@ def solc(
     """
     builds = _SOLC_BUILDS.get(version)
     if not builds:
-        pinned = ", ".join(sorted(_SOLC_BUILDS))
+        pinned = ", ".join(sorted(_SOLC_BUILDS.keys()))
         fail(f"solc {version} is not pinned. Pinned versions: {pinned}")
     platform = CONFIG.OS + "_" + CONFIG.ARCH
     info = builds.get(platform)
@@ -911,6 +931,7 @@ def _resolve_flags_cmd(evm_version: str, optimizer, optimizer_runs, toml_shell: 
     """
     default_opt = "true" if CONFIG.SOLIDITY.OPTIMIZE else "false"
     default_runs = str(CONFIG.SOLIDITY.OPTIMIZER_RUNS or 100)
+    default_evm = CONFIG.SOLIDITY.DEFAULT_EVM_VERSION or ""
     toml = ("--foundry-toml " + toml_shell + " ") if toml_shell else ""
     return (
         "$TOOLS_PLZSOL resolve-flags "
@@ -919,7 +940,8 @@ def _resolve_flags_cmd(evm_version: str, optimizer, optimizer_runs, toml_shell: 
         + "--optimize " + _shell_quote(_opt_word(optimizer)) + " "
         + "--optimizer-runs " + _shell_quote(_runs_word(optimizer_runs)) + " "
         + "--default-optimize=" + default_opt + " "
-        + "--default-optimizer-runs " + default_runs
+        + "--default-optimizer-runs " + default_runs + " "
+        + "--default-evm-version " + _shell_quote(default_evm)
     )
 
 

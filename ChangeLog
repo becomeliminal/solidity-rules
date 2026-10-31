@@ -1,3 +1,11 @@
+Version 0.1.1
+-------------
+    * solc 0.7.6 is pinned for every platform. On darwin_arm64 it is the
+      darwin_amd64 binary, run by Rosetta 2, as no arm64 build exists.
+    * DefaultEvmVersion: the EVM version a rule compiles for when neither
+      it nor its foundry.toml names one. Unset, solc's own default.
+    * An unpinned solc version's error lists the pinned ones again.
+
 Version 0.1.0
 -------------
     * First release. sol_contract, sol_library, sol_get, sol_test,
