@@ -14,7 +14,7 @@ name = solidity
 
 [PluginConfig "forge_tool"]
 ConfigKey = ForgeTool
-Help = Build label of forge from foundry_release(), such as //third_party/solidity:foundry|forge. A host path requires Sandbox = false.
+Help = Build label of forge from the foundry plugin, such as //third_party/binary:foundry|forge. A host path requires Sandbox = false.
 Optional = true
 Inherit = true
 
@@ -98,9 +98,12 @@ Target = //plugins:cc
 Target = //plugins:go
 gotool = //third_party/solidity/go:gotool|go
 
+[Plugin "foundry"]
+Target = //plugins:foundry
+
 [Plugin "solidity"]
-ForgeTool = //test:foundry|forge
-SolcPackage = //test
+ForgeTool = //third_party/binary:foundry|forge
+SolcPackage = //third_party/binary
 Sandbox = true
 AbigenTool = //third_party/solidity/go:abigen
 GoEthereumDep = //third_party/solidity/go:go-ethereum

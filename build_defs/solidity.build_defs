@@ -27,7 +27,7 @@ def svm(
 
     Example:
         svm(name = "svm", version = "0.5.22", visibility = ["PUBLIC"])
-        # Access via: //third_party/solidity:svm
+        # Access via: //third_party/binary:svm
     """
     if not os:
         if CONFIG.OS == 'linux':
@@ -76,70 +76,6 @@ def svm(
         binary = True,
         visibility = visibility,
         building_description = f"Extracting svm v{version} for {platform}...",
-    )
-
-
-def foundry_release(
-        name: str,
-        version: str,
-        hashes: dict,
-        os: str = None,
-        arch: str = None,
-        visibility: list = [],
-):
-    """Downloads one Foundry release tarball and provides its forge binary.
-
-    The asset is foundry_v<version>_<os>_<arch>.tar.gz. hashes maps
-    linux_amd64, linux_arm64, darwin_amd64, and darwin_arm64 to the sha256
-    of that platform's tarball. The build uses the host platform and fails
-    when that platform has no hash.
-
-    The forge output is selected with |forge, for example //third_party/solidity:foundry|forge.
-
-    Args:
-        name: Name of the rule.
-        version: Foundry version, without a leading v (for example "1.5.0").
-        hashes: Platform to sha256 hex, or sha256:<hex>.
-        os: Target OS. Defaults to the host OS.
-        arch: Target architecture. Defaults to the host arch.
-        visibility: Visibility declaration.
-    """
-    if not os:
-        if CONFIG.OS in ("linux", "darwin"):
-            os = CONFIG.OS
-        else:
-            fail(f"Unknown OS {CONFIG.OS}")
-    if not arch:
-        if CONFIG.ARCH in ("amd64", "arm64"):
-            arch = CONFIG.ARCH
-        else:
-            fail(f"Unknown architecture {CONFIG.ARCH}")
-
-    platform = f"{os}_{arch}"
-    digest = (hashes or {}).get(platform, "")
-    if digest.startswith("sha256:"):
-        digest = digest[len("sha256:"):]
-    if not digest:
-        fail(f"foundry_release({version}) has no sha256 for {platform}")
-
-    url = f"https://github.com/foundry-rs/foundry/releases/download/v{version}/foundry_v{version}_{platform}.tar.gz"
-    download = remote_file(
-        name = f"_{name}#download",
-        url = url,
-        hashes = ["sha256:" + digest],
-    )
-    return build_rule(
-        name = name,
-        srcs = [download],
-        outs = {"forge": [f"{platform}/forge"]},
-        cmd = " && ".join([
-            f"mkdir -p {platform}",
-            "tar -xzf $SRC",
-            f"mv forge {platform}/",
-        ]),
-        binary = True,
-        visibility = visibility,
-        building_description = f"Extracting Foundry v{version} for {platform}...",
     )
 
 
@@ -239,28 +175,28 @@ def solc_versions(
     """Creates shared solc rules for multiple versions.
 
     This is a convenience function to pre-download and cache multiple solc versions.
-    Use this in your third_party/solidity BUILD file to avoid repeated downloads.
+    Call it from third_party/binary/BUILD, next to foundry().
 
     Args:
         versions: List of Solidity versions to download (e.g., ["0.8.20", "0.8.21"]).
         visibility: Visibility for all created rules.
 
     Example:
-        # third_party/solidity/BUILD
-        subinclude("//build_defs:solidity")
+        # third_party/binary/BUILD
+        subinclude("///solidity//build_defs:solidity")
 
         solc_versions(
             versions = ["0.8.20", "0.8.21", "0.8.23"],
         )
 
         # Creates targets:
-        # //third_party/solidity:solc_0_8_20
-        # //third_party/solidity:solc_0_8_21
-        # //third_party/solidity:solc_0_8_23
+        # //third_party/binary:solc_0_8_20
+        # //third_party/binary:solc_0_8_21
+        # //third_party/binary:solc_0_8_23
 
         # Then in .plzconfig:
         # [Plugin "solidity"]
-        # SolcTool = //third_party/solidity:solc_0_8_20
+        # SolcPackage = //third_party/binary
 
     Returns:
         List of created rule names.
@@ -287,7 +223,7 @@ def solc_default(version: str):
         version: Solidity version (e.g., "0.8.20").
 
     Returns:
-        Target string (e.g., "//third_party/solidity:solc_0_8_20").
+        Target string (e.g., "//third_party/binary:solc_0_8_20").
 
     Example:
         # In .plzconfig
@@ -295,7 +231,7 @@ def solc_default(version: str):
         SolcTool = %(call solc_default 0.8.20)
     """
     name = "solc_" + version.replace(".", "_")
-    return f"//third_party/solidity:{name}"
+    return f"//third_party/binary:{name}"
 
 
 def sol_library(
@@ -1015,8 +951,8 @@ def _local_solc(solc_version: str) -> str:
     """
     package = CONFIG.SOLIDITY.SOLC_PACKAGE
     if package:
-        # plz canonicalises a label-like config value ("//third_party/solidity"
-        # arrives as ".../third_party/solidity:solidity"), so drop the name.
+        # plz canonicalises a label-like config value ("//third_party/binary"
+        # arrives as ".../third_party/binary:binary"), so drop the name.
         if ":" in package:
             package = ":".join(package.split(":")[:-1])
         return package + ":solc_" + solc_version.replace(".", "_")
@@ -1026,14 +962,14 @@ def _local_solc(solc_version: str) -> str:
 def _forge_tool() -> str:
     """The forge binary a rule runs.
 
-    Empty fails with the foundry_release() shape. A host path is invisible
-    inside the sandbox, so it is only accepted with Sandbox = false.
+    Empty fails with the foundry plugin's forge output. A host path is
+    invisible inside the sandbox, so it is only accepted with Sandbox = false.
     """
     tool = CONFIG.SOLIDITY.FORGE_TOOL or ""
     if not tool:
         fail(
-            "ForgeTool is not set. Pin a release with foundry_release() and point ForgeTool at its forge output, "
-            "for example //third_party/solidity:foundry|forge. A host path such as ~/.foundry/bin/forge needs Sandbox = false."
+            "ForgeTool is not set. Add the foundry plugin and point ForgeTool at its forge output, "
+            "for example //third_party/binary:foundry|forge. A host path such as ~/.foundry/bin/forge needs Sandbox = false."
         )
     # Please rewrites a // label from config to /////pkg:name. A build label
     # always has at least two leading slashes. One slash, or ~, is a host path.
@@ -1041,7 +977,7 @@ def _forge_tool() -> str:
     if CONFIG.SOLIDITY.SANDBOX and host:
         fail(
             f"ForgeTool is {tool}, a host path the sandbox cannot see. "
-            "Set Sandbox = false for local development, or point ForgeTool at a foundry_release() target."
+            "Set Sandbox = false for local development, or point ForgeTool at //third_party/binary:foundry|forge."
         )
     return tool
 

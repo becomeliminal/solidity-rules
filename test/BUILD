@@ -1,28 +1,5 @@
 subinclude("//build_defs:solidity")
 
-# Pinned Foundry release. ForgeTool is //test:foundry|forge.
-# sha256 values are the GitHub release asset digests for v1.5.0.
-foundry_release(
-    name = "foundry",
-    version = "1.5.0",
-    hashes = {
-        "linux_amd64": "5cd98f9092bcc28be087939491f786b2bf3ed55e492996a409e29519b8ab4dc8",
-        "linux_arm64": "8138e1615568bfcca5999773830892d93a569370eb0ae4b7dd97db46e2af47f9",
-        "darwin_amd64": "493b04c731b02b85d95f3bf9aff9cdddd0acd52c277902f3313fbe55e9b154e6",
-        "darwin_arm64": "17748f7b1815a66d91cce88946989b049358a874262cb848284609dd9094df06",
-    },
-    visibility = ["PUBLIC"],
-)
-
-# One solc per version the tests compile with. SolcPackage = //test (see
-# .plzconfig) makes each rule use the one its solc_version names.
-solc_versions(
-    versions = [
-        "0.8.20",
-        "0.8.23",
-    ],
-)
-
 # Forge standard library - tests automatic import remappings
 # No contract_names → defaults to languages=[] (no Go bindings)
 sol_get(
