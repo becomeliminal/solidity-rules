@@ -1292,7 +1292,21 @@ go_repo(
     name = "github.com_shirou_gopsutil_v3",
     install = ["..."],
     module = "github.com/shirou/gopsutil/v3",
+    # cpu_darwin.go imports go-m1cpu. macOS CI fails without the subrepo.
+    requirements = [
+        "github.com/shoenig/go-m1cpu",
+        "github.com/tklauser/go-sysconf",
+        "golang.org/x/sys",
+    ],
     version = "v3.24.5",
+)
+
+go_repo(
+    third_party_path = "third_party/solidity/go",
+    name = "go-m1cpu",
+    install = ["."],
+    module = "github.com/shoenig/go-m1cpu",
+    version = "v0.1.6",
 )
 
 go_repo(
