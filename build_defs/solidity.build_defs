@@ -57,6 +57,9 @@ def svm(
     if not platform:
         fail(f'Unsupported platform: {platform_key}')
 
+    if not hashes:
+        fail(f"svm({version}) requires hashes for the svm-rs-{platform}.tar.gz release asset")
+
     url = f"https://github.com/alloy-rs/svm-rs/releases/download/v{version}/svm-rs-{platform}.tar.gz"
 
     download = remote_file(
@@ -76,51 +79,156 @@ def svm(
     )
 
 
+def foundry_release(
+        name: str,
+        version: str,
+        hashes: dict,
+        os: str = None,
+        arch: str = None,
+        visibility: list = [],
+):
+    """Downloads one Foundry release tarball and provides its forge binary.
+
+    The asset is foundry_v<version>_<os>_<arch>.tar.gz. hashes maps
+    linux_amd64, linux_arm64, darwin_amd64, and darwin_arm64 to the sha256
+    of that platform's tarball. The build uses the host platform and fails
+    when that platform has no hash.
+
+    The forge output is selected with |forge, for example //third_party/solidity:foundry|forge.
+
+    Args:
+        name: Name of the rule.
+        version: Foundry version, without a leading v (for example "1.5.0").
+        hashes: Platform to sha256 hex, or sha256:<hex>.
+        os: Target OS. Defaults to the host OS.
+        arch: Target architecture. Defaults to the host arch.
+        visibility: Visibility declaration.
+    """
+    if not os:
+        if CONFIG.OS in ("linux", "darwin"):
+            os = CONFIG.OS
+        else:
+            fail(f"Unknown OS {CONFIG.OS}")
+    if not arch:
+        if CONFIG.ARCH in ("amd64", "arm64"):
+            arch = CONFIG.ARCH
+        else:
+            fail(f"Unknown architecture {CONFIG.ARCH}")
+
+    platform = f"{os}_{arch}"
+    digest = (hashes or {}).get(platform, "")
+    if digest.startswith("sha256:"):
+        digest = digest[len("sha256:"):]
+    if not digest:
+        fail(f"foundry_release({version}) has no sha256 for {platform}")
+
+    url = f"https://github.com/foundry-rs/foundry/releases/download/v{version}/foundry_v{version}_{platform}.tar.gz"
+    download = remote_file(
+        name = f"_{name}#download",
+        url = url,
+        hashes = ["sha256:" + digest],
+    )
+    return build_rule(
+        name = name,
+        srcs = [download],
+        outs = {"forge": [f"{platform}/forge"]},
+        cmd = " && ".join([
+            f"mkdir -p {platform}",
+            "tar -xzf $SRC",
+            f"mv forge {platform}/",
+        ]),
+        binary = True,
+        visibility = visibility,
+        building_description = f"Extracting Foundry v{version} for {platform}...",
+    )
+
+
+# solc static binaries.
+# linux_amd64 and darwin_amd64 come from
+# https://binaries.soliditylang.org/<platform>/list.json. The URL contains
+# the compiler commit. Official builds do not publish darwin_arm64 for these
+# versions, or linux_arm64 before 0.8.31. Those four binaries are the ones
+# svm installs: alloy-rs/solc-builds e4b80d33 for darwin_arm64, and
+# nikitastupin/solc 2287d432 for linux_arm64. sha256 is the file itself.
+_SOLC_BUILDS = {
+    "0.8.20": {
+        "linux_amd64": {
+            "url": "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.20+commit.a1b79de6",
+            "sha256": "0479d44fdf9c501c25337fdc540419f1593b884a87b47f023da4f1c700fda782",
+        },
+        "linux_arm64": {
+            "url": "https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/solc-v0.8.20",
+            "sha256": "d742f637a5846dc434903f1c2e19a510762d722b97a3b105f773df6aebdab39a",
+        },
+        "darwin_amd64": {
+            "url": "https://binaries.soliditylang.org/macosx-amd64/solc-macosx-amd64-v0.8.20+commit.a1b79de6",
+            "sha256": "fc329945e0068e4e955d0a7b583776dc8d25e72ab657a044618a7ce7dd0519aa",
+        },
+        "darwin_arm64": {
+            "url": "https://raw.githubusercontent.com/alloy-rs/solc-builds/e4b80d33bc4d015b2fc3583e217fbf248b2014e1/macosx/aarch64/solc-v0.8.20",
+            "sha256": "5d98c9ed892b74ecadc4ab7f93de6211fdde0351ef66f2cb90eb11630e30e2ab",
+        },
+    },
+    "0.8.23": {
+        "linux_amd64": {
+            "url": "https://binaries.soliditylang.org/linux-amd64/solc-linux-amd64-v0.8.23+commit.f704f362",
+            "sha256": "28726a452290c70e1984f15c53ad3088e7d98783ee3070b11b3664da77415732",
+        },
+        "linux_arm64": {
+            "url": "https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/solc-v0.8.23",
+            "sha256": "16d29f5a113931bfd3af41e45b00b09aac7d9cc2a2ba8d947af2758516711a49",
+        },
+        "darwin_amd64": {
+            "url": "https://binaries.soliditylang.org/macosx-amd64/solc-macosx-amd64-v0.8.23+commit.f704f362",
+            "sha256": "e09a42980e44644be33a8455c87d095a4f0028e41a7dde1137f5d9a7605a2d62",
+        },
+        "darwin_arm64": {
+            "url": "https://raw.githubusercontent.com/alloy-rs/solc-builds/e4b80d33bc4d015b2fc3583e217fbf248b2014e1/macosx/aarch64/solc-v0.8.23",
+            "sha256": "df90fd580c92970e6441fa4b69b58e364e33f1ef0da6b8dae49af289e972a075",
+        },
+    },
+}
+
+
 def solc(
         name: str,
         version: str,
         visibility: list = [],
 ):
-    """Downloads a specific solc version using svm.
+    """Installs one pinned solc static binary for the host platform.
 
-    This rule uses svm to download and install a specific version of the
-    Solidity compiler. Configure SvmTool in .plzconfig to point to the svm binary.
+    Versions in _SOLC_BUILDS are downloaded as remote files and checked
+    against that table. A version or platform with no hash fails the build.
+    The copy into the output is sandboxed; the download is a remote_file.
 
     Args:
         name: Name of the rule.
-        version: Solidity version to download (e.g., "0.8.20").
+        version: Solidity version (for example "0.8.20").
         visibility: Visibility declaration.
-
-    Example:
-        # .plzconfig
-        [Plugin "solidity"]
-        SvmTool = //third_party/solidity:svm
-
-        # BUILD
-        solc(name = "solc_0.8.20", version = "0.8.20")
     """
-    svm = CONFIG.SOLIDITY.SVM_TOOL
-    if not svm:
-        fail("solc() requires SvmTool config option in .plzconfig")
+    builds = _SOLC_BUILDS.get(version)
+    if not builds:
+        pinned = ", ".join(sorted(_SOLC_BUILDS))
+        fail(f"solc {version} is not pinned. Pinned versions: {pinned}")
+    platform = CONFIG.OS + "_" + CONFIG.ARCH
+    info = builds.get(platform)
+    if not info:
+        fail(f"solc {version} has no binary for {platform}")
 
-    quoted_version = _shell_quote(version)
-
+    download = remote_file(
+        name = f"_{name}#download",
+        url = info["url"],
+        hashes = ["sha256:" + info["sha256"]],
+    )
     return genrule(
         name = name,
-        tools = {"svm": svm},
+        srcs = [download],
         outs = [name],
-        # svm install downloads to ~/.svm/version/solc-version
-        # We copy it to make it portable
-        cmd = f"""
-            export SVM_HOME=$TMP_DIR/.svm
-            $TOOLS_SVM install {quoted_version}
-            cp $SVM_HOME/{version}/solc-{version} $OUT
-            chmod +x $OUT
-        """,
+        cmd = "cp $SRCS $OUT && chmod +x $OUT",
         binary = True,
-        sandbox = False,  # Needs network to download solc
+        sandbox = True,
         visibility = visibility,
-        building_description = f"Downloading solc {version}...",
+        building_description = f"Installing solc {version} for {platform}...",
     )
 
 
@@ -262,15 +370,16 @@ def sol_contract(
     Solidity contracts, extracts ABIs and bytecode, and optionally generates
     language bindings (currently Go via abigen).
 
-    If SolcTool is configured in .plzconfig, uses the local solc binary.
-    Otherwise, uses forge's --use flag to download via svm.
+    SolcPackage or SolcTool selects the solc binary passed to forge --use.
+    With neither set, forge is given the version string and may download a
+    compiler, which the sandbox does not allow.
 
     Args:
         name: Name of the rule.
         src: Solidity source file or directory.
         deps: Dependencies (other sol_library or sol_contract rules).
-        solc_version: Solidity compiler version (e.g., "0.8.20"). Used when
-            downloading via svm. Defaults to DefaultSolcVersion config.
+        solc_version: Solidity compiler version (e.g., "0.8.20"). Selects the
+            SolcPackage target. Defaults to DefaultSolcVersion config.
         solc_flags: Additional flags for solc/forge.
         evm_version: EVM version passed to forge (e.g. "paris", "cancun").
             Empty uses foundry_toml when that is set, otherwise the compiler default.
@@ -526,9 +635,10 @@ def sol_get(
 
     org, _, repo_name = repo.partition('/')
 
-    # SECURITY: Log warning if no hash verification
+    # GitHub archive bytes are not a stable checksum. Pin a commit and fail
+    # closed when the zip no longer matches.
     if not hashes:
-        log.warning(f"sol_get('{name}'): No hash verification. Consider adding hashes=['sha256:...'] for supply chain security.")
+        fail(f"sol_get('{name}') requires hashes=['sha256:...'] for revision {revision}")
 
     zip_file = remote_file(
         name = f"_{name}#zip",
@@ -796,8 +906,6 @@ def sol_test(
     test_tools = _get_forge_tools(solc_version)
     test_tools["plzsol"] = CONFIG.SOLIDITY.PLEASE_SOL_TOOL
 
-    # local stays True until forge is a built tool rather than a host path.
-    # A sandboxed remote worker cannot see ~/.foundry/bin/forge.
     test_lines = [
         "set -e",
         _remapping_args_cmd(f"$(location {sol_remapping_data})"),
@@ -826,7 +934,6 @@ def sol_test(
         data = data,
         sandbox = CONFIG.SOLIDITY.SANDBOX,
         test_tools = test_tools,
-        local = True,
         test_cmd = "\n".join(test_lines),
         timeout = timeout,
         labels = labels,
@@ -916,6 +1023,29 @@ def _local_solc(solc_version: str) -> str:
     return CONFIG.SOLIDITY.SOLC_TOOL or ""
 
 
+def _forge_tool() -> str:
+    """The forge binary a rule runs.
+
+    Empty fails with the foundry_release() shape. A host path is invisible
+    inside the sandbox, so it is only accepted with Sandbox = false.
+    """
+    tool = CONFIG.SOLIDITY.FORGE_TOOL or ""
+    if not tool:
+        fail(
+            "ForgeTool is not set. Pin a release with foundry_release() and point ForgeTool at its forge output, "
+            "for example //third_party/solidity:foundry|forge. A host path such as ~/.foundry/bin/forge needs Sandbox = false."
+        )
+    # Please rewrites a // label from config to /////pkg:name. A build label
+    # always has at least two leading slashes. One slash, or ~, is a host path.
+    host = tool.startswith("~") or (tool.startswith("/") and not tool.startswith("//"))
+    if CONFIG.SOLIDITY.SANDBOX and host:
+        fail(
+            f"ForgeTool is {tool}, a host path the sandbox cannot see. "
+            "Set Sandbox = false for local development, or point ForgeTool at a foundry_release() target."
+        )
+    return tool
+
+
 def _get_forge_tools(solc_version: str) -> dict:
     """Returns tools dict with forge and, when one is configured, solc.
 
@@ -925,8 +1055,13 @@ def _get_forge_tools(solc_version: str) -> dict:
     Returns:
         Dict suitable for tools parameter of genrule/gentest.
     """
-    tools = {"forge": CONFIG.SOLIDITY.FORGE_TOOL}
+    tools = {"forge": _forge_tool()}
     local_solc = _local_solc(solc_version)
+    if CONFIG.SOLIDITY.SANDBOX and not local_solc:
+        fail(
+            f"Sandbox is true and solc {solc_version} is not configured. "
+            "Add solc_versions() and set SolcPackage, or set Sandbox = false so forge can fetch solc itself."
+        )
     if local_solc:
         tools["solc"] = local_solc
     return tools

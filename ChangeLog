@@ -1,0 +1,6 @@
+Version 0.1.0
+-------------
+    * First release. sol_contract, sol_library, sol_get, sol_test,
+      foundry_release, and solc_versions. Forge and solc are fetched by
+      the rules. A failed compile fails the build, and forge test reports
+      each revert reason and duration.

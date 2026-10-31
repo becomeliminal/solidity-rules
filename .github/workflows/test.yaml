@@ -1,0 +1,76 @@
+# Runs every test on Linux and on macOS. The rules' build commands are shell,
+# and BSD userland (macOS) differs from GNU in ways a Linux-only run never sees.
+# Nothing here installs forge or solc: a green test means those binaries came
+# from foundry_release() and solc().
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.runner }}
+    name: test (${{ matrix.runner }})
+    steps:
+      - uses: actions/checkout@v4
+
+      # Please's sandbox runs build actions in unprivileged user namespaces,
+      # which Ubuntu 24.04's AppArmor refuses by default.
+      - name: Allow unprivileged user namespaces
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # The shell scripts are written for the bash macOS ships, which is 3.2.
+      - name: macOS bash is 3.x
+        if: runner.os == 'macOS'
+        run: |
+          bash_ver=$(PATH=/usr/local/bin:/usr/bin:/bin bash -c 'echo ${BASH_VERSION}')
+          echo "bash ${bash_ver}"
+          case "${bash_ver}" in
+            3.*) ;;
+            *) echo "expected bash 3.x from /bin, got ${bash_ver}"; exit 1 ;;
+          esac
+
+      - name: Cache Please
+        uses: actions/cache@v4
+        with:
+          path: ~/.please
+          key: please-${{ runner.os }}-${{ hashFiles('.plzconfig') }}
+
+      - name: Test
+        run: ./pleasew test -p -v notice //...
+
+      - name: A failed compile fails the build
+        run: |
+          set +e
+          ./pleasew build -p -v notice //test/09_failures:broken
+          broken=$?
+          ./pleasew build -p -v notice //test/09_failures:partial
+          partial=$?
+          set -e
+          if [ "$broken" -eq 0 ] || [ "$partial" -eq 0 ]; then
+            echo "broken=${broken} partial=${partial}; a failed compile must fail the build"
+            exit 1
+          fi
+
+      - name: Archive logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.runner }}
+          path: plz-out/log
+          if-no-files-found: ignore

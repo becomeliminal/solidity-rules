@@ -28,7 +28,7 @@ gentest(
         "plzsol": CONFIG.SOLIDITY.PLEASE_SOL_TOOL,
         "solc": "//test:solc_0_8_20",
     },
-    local = True,
+    sandbox = CONFIG.SOLIDITY.SANDBOX,
     test_cmd = """
 set -e
 mkdir -p src test
