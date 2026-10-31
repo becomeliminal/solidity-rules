@@ -46,3 +46,24 @@ go_test(
         "//third_party/solidity/go:go-ethereum",
     ],
 )
+
+# Bindings leave out a contract the rule skips; Vault, which contract_names
+# asks for, is still bound.
+sol_contract(
+    name = "vault",
+    src = "Vault.sol",
+    solc_version = "0.8.20",
+    contract_names = ["Vault"],
+    languages = ["go"],
+    skip = ["Unwanted"],
+)
+
+gentest(
+    name = "vault_bindings_test",
+    data = [":_vault#gosrcs"],
+    no_test_output = True,
+    test_cmd = " && ".join([
+        "test -f $(find . -name vault.go | head -1)",
+        "! find . -name unwanted.go | grep -q .",
+    ]),
+)

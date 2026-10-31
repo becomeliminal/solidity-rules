@@ -5,6 +5,9 @@ Version 0.1.1
     * DefaultEvmVersion: the EVM version a rule compiles for when neither
       it nor its foundry.toml names one. Unset, solc's own default.
     * An unpinned solc version's error lists the pinned ones again.
+    * Go bindings are made for what forge compiled: a declaration in the
+      sources that was skipped or never imported has no artifact and gets
+      no binding. One that contract_names asks for still fails the build.
 
 Version 0.1.0
 -------------

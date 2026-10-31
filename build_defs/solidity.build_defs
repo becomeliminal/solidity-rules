@@ -450,6 +450,12 @@ def sol_contract(
     go_ethereum_dep = _for_target_platform(CONFIG.SOLIDITY.GO_ETHEREUM_DEP) if CONFIG.SOLIDITY.GO_ETHEREUM_DEP else None
 
     if 'go' in languages and abigen_tool:
+        # Space-separated word lists, matched whole. The declarations come
+        # from every source file, but forge compiles only what the rule's
+        # sources import, less what it skips: a declaration with no artifact
+        # has nothing to bind, unless the rule names it in contract_names.
+        skipped_words = _shell_quote(" " + " ".join(skip) + " ")
+        wanted_words = _shell_quote(" " + " ".join(contract_names) + " ")
         go_srcs = genrule(
             name = f"_{name}#gosrcs",
             srcs = {
@@ -463,10 +469,14 @@ def sol_contract(
                 "mkdir out",
                 "while IFS=$(printf '\\t') read -r kind name; do",
                 '  if [ -z "$name" ]; then continue; fi',
+                '  case ' + skipped_words + ' in *" $name "*) continue ;; esac',
                 '  p_lower=$(printf "%s" "$name" | tr A-Z a-z)',
                 '  abi="$SRCS_FORGE_BUILD/$name.abi"',
                 '  bin="$SRCS_FORGE_BUILD/$name.bin"',
-                '  if [ ! -f "$abi" ] || [ ! -f "$bin" ]; then echo "no artifact for $kind $name" >&2; exit 1; fi',
+                '  if [ ! -f "$abi" ] || [ ! -f "$bin" ]; then',
+                '    case ' + wanted_words + ' in *" $name "*) echo "no artifact for $kind $name, which contract_names asks for" >&2; exit 1 ;; esac',
+                '    continue',
+                '  fi',
                 '  $TOOL --type=instance --abi="$abi" --bin="$bin" --pkg="$p_lower" --out="out/$p_lower.go"',
                 'done < "$SRCS_INTERFACES"',
             ]),
