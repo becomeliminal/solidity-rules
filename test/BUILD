@@ -1,27 +1,13 @@
 subinclude("//build_defs:solidity")
 
-# Test svm rule (downloads svm binary)
-svm(
-    name = "svm",
-    version = "0.5.22",
-    visibility = ["PUBLIC"],
-)
-
-# One solc per version the tests compile with. SolcPackage = //test (see
-# .plzconfig) makes each rule use the one its solc_version names.
-solc_versions(
-    versions = [
-        "0.8.20",
-        "0.8.23",
-    ],
-)
-
 # Forge standard library - tests automatic import remappings
 # No contract_names → defaults to languages=[] (no Go bindings)
 sol_get(
     name = "forge-std",
     repo = "foundry-rs/forge-std",
-    revision = "v1.9.4",
+    # v1.9.4
+    revision = "1eea5bae12ae557d589f9f0f0edae2faa47cb262",
+    hashes = ["sha256:f709d2f1811e5048c6c207ca3d1454f27f21c98104e95e8505afc2607750b786"],
     package = "src",
     visibility = ["PUBLIC"],
 )
@@ -31,7 +17,9 @@ sol_get(
 sol_get(
     name = "openzeppelin-contracts",
     repo = "OpenZeppelin/openzeppelin-contracts",
-    revision = "v5.0.2",
+    # v5.0.2
+    revision = "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+    hashes = ["sha256:bee78702745be0611eb14b4c5d06972c2ac0f138b62a26c06fcda8618a37030b"],
     package = "contracts",
     install = ["."],
     visibility = ["PUBLIC"],
@@ -70,7 +58,9 @@ sol_test(
 sol_get(
     name = "solmate",
     repo = "transmissions11/solmate",
-    revision = "v6",
+    # v6
+    revision = "a9e3ea26a2dc73bfa87f0cb189687d029028e0c5",
+    hashes = ["sha256:3ac66fd23e9ab279eb2f18d0369311201e11716099f8630a57e01b65bc713731"],
     package = "src",
     install = ["tokens", "utils"],
     visibility = ["PUBLIC"],
@@ -80,7 +70,9 @@ sol_get(
 sol_get(
     name = "solady",
     repo = "Vectorized/solady",
-    revision = "v0.0.227",
+    # v0.0.227
+    revision = "1f43cc8005cc3b3c8361dd7dbdd2cdeaf0f99e66",
+    hashes = ["sha256:9ac6c5c4f023c4a2764a3e4ca23f98da1aeb15cd74b5d10efcdf75add13781ff"],
     package = "src",
     install = ["auth", "tokens", "utils"],
     visibility = ["PUBLIC"],
@@ -102,6 +94,7 @@ sol_get(
     name = "hardhat",
     repo = "NomicFoundation/hardhat",
     revision = "1c7f8b766052101911df43d7b748fca12bcbf996",
+    hashes = ["sha256:4877fb770cd415dac2e450b28af57f85d2ceb60fc4a0b4deee302b6433d0f331"],
     package = "packages/hardhat-core",
     strip = ["test", "sample-projects"],
     contract_names = ["Console"],

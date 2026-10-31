@@ -26,9 +26,9 @@ gentest(
     test_tools = {
         "forge": CONFIG.SOLIDITY.FORGE_TOOL,
         "plzsol": CONFIG.SOLIDITY.PLEASE_SOL_TOOL,
-        "solc": "//test:solc_0_8_20",
+        "solc": "//third_party/binary:solc_0_8_20",
     },
-    local = True,
+    sandbox = CONFIG.SOLIDITY.SANDBOX,
     test_cmd = """
 set -e
 mkdir -p src test

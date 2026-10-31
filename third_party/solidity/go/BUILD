@@ -1184,11 +1184,13 @@ go_repo(
     version = "v0.2.9",
 )
 
-# gopsutil - needed by go-ethereum/metrics
+# gopsutil - go-ethereum/metrics imports cpu. disk and host include darwin
+# C that Please compiles as C99; iostat_darwin.c uses GNU typeof and fails
+# that compile on macOS.
 go_repo(
     third_party_path = "third_party/solidity/go",
     name = "gopsutil",
-    install = ["..."],
+    install = ["cpu", "mem", "internal/common"],
     module = "github.com/shirou/gopsutil",
     requirements = [
         "github.com/tklauser/go-sysconf",
@@ -1292,7 +1294,21 @@ go_repo(
     name = "github.com_shirou_gopsutil_v3",
     install = ["..."],
     module = "github.com/shirou/gopsutil/v3",
+    # cpu_darwin.go imports go-m1cpu. macOS CI fails without the subrepo.
+    requirements = [
+        "github.com/shoenig/go-m1cpu",
+        "github.com/tklauser/go-sysconf",
+        "golang.org/x/sys",
+    ],
     version = "v3.24.5",
+)
+
+go_repo(
+    third_party_path = "third_party/solidity/go",
+    name = "go-m1cpu",
+    install = ["."],
+    module = "github.com/shoenig/go-m1cpu",
+    version = "v0.1.6",
 )
 
 go_repo(
@@ -1458,7 +1474,6 @@ GO_ETHEREUM_DEPS = [
     ":goja",
     ":golang-lru",
     ":gopsutil",
-    ":github.com_shirou_gopsutil_v3",
     ":go-minisign",
     ":go-duktape.v3",
     ":graphql-go",

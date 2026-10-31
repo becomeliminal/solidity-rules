@@ -11,32 +11,66 @@ A [Please](https://please.build) plugin for building Solidity smart contracts us
 
 ## Installation
 
-### Prerequisites
-
-- [Foundry](https://github.com/foundry-rs/foundry) must be installed (provides `forge` compiler)
-- Install via: `curl -L https://foundry.paradigm.xyz | bash && foundryup`
-
 ### Setup
 
-1. Add the plugin to your `plugins/BUILD`:
+1. Add both plugins to your `plugins/BUILD`. Forge is the
+   [foundry plugin](https://github.com/becomeliminal/foundry). This repo does
+   not download Foundry itself.
 
 ```python
 plugin_repo(
     name = "solidity",
     owner = "becomeliminal",
     plugin = "solidity-rules",
-    revision = "<commit-sha>",
+    revision = "v0.1.0",
+)
+
+plugin_repo(
+    name = "foundry",
+    owner = "becomeliminal",
+    revision = "7d11211b950ace6e83bb18f5df048a5e7fc31ba7",
 )
 ```
 
-2. Configure in `.plzconfig`:
+2. Put the third-party binaries in `third_party/binary/BUILD`. `foundry()`
+   fetches anvil, forge, cast, and chisel. `hashes` lists the sha256 of each
+   platform's `foundry_v1.5.0_<os>_<arch>.tar.gz`; the download must match one
+   of them. `solc_versions` installs the pinned solc static binaries (0.8.20
+   and 0.8.23).
 
-```ini
-[Plugin "solidity"]
-Target = //plugins:solidity
+```python
+subinclude("///foundry//build_defs:foundry")
+subinclude("///solidity//build_defs:solidity")
+
+foundry(
+    name = "foundry",
+    version = "1.5.0",
+    hashes = [
+        "sha256:5cd98f9092bcc28be087939491f786b2bf3ed55e492996a409e29519b8ab4dc8",  # linux_amd64
+        "sha256:8138e1615568bfcca5999773830892d93a569370eb0ae4b7dd97db46e2af47f9",  # linux_arm64
+        "sha256:493b04c731b02b85d95f3bf9aff9cdddd0acd52c277902f3313fbe55e9b154e6",  # darwin_amd64
+        "sha256:17748f7b1815a66d91cce88946989b049358a874262cb848284609dd9094df06",  # darwin_arm64
+    ],
+    visibility = ["PUBLIC"],
+)
+
+solc_versions(versions = ["0.8.20", "0.8.23"])
 ```
 
-3. (Optional) Configure Go bindings:
+3. Configure in `.plzconfig`. Sandbox defaults to true, so forge and solc must
+   be build targets rather than files on the machine:
+
+```ini
+[Plugin "foundry"]
+Target = //plugins:foundry
+
+[Plugin "solidity"]
+Target = //plugins:solidity
+ForgeTool = //third_party/binary:foundry|forge
+SolcPackage = //third_party/binary
+```
+
+4. (Optional) Configure Go bindings:
 
 ```ini
 [Plugin "solidity"]
@@ -45,59 +79,24 @@ AbigenTool = //third_party/go:abigen
 GoEthereumDep = //third_party/go:go-ethereum
 ```
 
-4. (Optional) Use local forge via the [Foundry plugin](https://github.com/becomeliminal/foundry):
+### Local development
+
+A host `forge` is outside the sandbox. Point `ForgeTool` at it and turn the
+sandbox off. With no `SolcPackage`, forge fetches solc itself.
 
 ```ini
 [Plugin "solidity"]
 Target = //plugins:solidity
-ForgeTool = //third_party/binary:foundry|forge
-```
-
-5. (Optional) Use local solc via the svm rule:
-
-```python
-# In third_party/solidity/BUILD
-subinclude("///solidity//build_defs:solidity")
-
-svm(
-    name = "svm",
-    version = "0.5.22",
-    visibility = ["PUBLIC"],
-)
-
-solc(
-    name = "solc_0.8.20",
-    version = "0.8.20",
-    visibility = ["PUBLIC"],
-)
-```
-
-```ini
-[Plugin "solidity"]
-Target = //plugins:solidity
-SvmTool = //third_party/solidity:svm
-SolcTool = //third_party/solidity:solc_0.8.20
+ForgeTool = ~/.foundry/bin/forge
+Sandbox = false
 ```
 
 `SolcTool` is one compiler for every rule: each rule's `solc_version` is ignored.
-To have each rule compile with the version it names, create one target per
-version with `solc_versions()` and point `SolcPackage` at their package instead:
+`SolcPackage` takes precedence over `SolcTool`. A rule whose `solc_version`
+(or `DefaultSolcVersion`) has no target in that package fails to build rather
+than compiling with another version. `svm()` remains for an svm binary and
+requires hashes for its release tarball. `solc()` does not call it.
 
-```python
-# In third_party/solidity/BUILD
-solc_versions(versions = ["0.7.6", "0.8.20", "0.8.23"])  # solc_0_7_6, solc_0_8_20, ...
-```
-
-```ini
-[Plugin "solidity"]
-Target = //plugins:solidity
-SvmTool = //third_party/solidity:svm
-SolcPackage = //third_party/solidity
-```
-
-A rule whose `solc_version` (or `DefaultSolcVersion`) has no target in that
-package fails to build rather than compiling with another version.
-`SolcPackage` takes precedence over `SolcTool`.
 
 ## Usage
 
@@ -204,40 +203,47 @@ All options can be set in `.plzconfig` under `[Plugin "solidity"]`:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `ForgeTool` | `~/.foundry/bin/forge` | Path or build label for forge (assumes foundryup install) |
-| `SolcTool` | (none) | Build label for solc binary (from `solc()` rule), used for every rule |
+| `ForgeTool` | (none) | The forge output of the foundry plugin, `//third_party/binary:foundry|forge`. A filesystem path needs `Sandbox = false` |
+| `SolcTool` | (none) | Build label for one solc binary (from `solc()`), used for every rule |
 | `SolcPackage` | (none) | Package of `solc_versions()` targets; each rule uses the one its `solc_version` names. Overrides `SolcTool` |
-| `SvmTool` | (none) | Build label for svm binary (from `svm()` rule) |
+| `SvmTool` | (none) | Build label for an `svm()` binary. `solc()` does not use it |
 | `DefaultSolcVersion` | `0.8.20` | Default Solidity version when not specified per-rule |
 | `AbigenTool` | (none) | Build label for abigen (required for Go bindings) |
 | `GoEthereumDep` | (none) | Build label for go-ethereum (required for Go bindings) |
 | `DefaultLanguages` | `go` | Default output languages for sol_contract |
 | `Optimize` | `true` | Enable Solidity optimizer |
 | `OptimizerRuns` | `100` | Number of optimizer runs |
-| `Sandbox` | `false` | Enable sandbox (requires local solc) |
+| `Sandbox` | `true` | Run forge inside the Please sandbox |
 
 ## Rule Reference
 
+Forge is not a rule in this plugin. `foundry()` from the foundry plugin
+provides `//third_party/binary:foundry|forge`.
+
 ### svm
 
-Downloads pre-built svm binary for managing solc versions.
+Downloads a pre-built svm binary. Put the call in `third_party/binary/BUILD`.
+`hashes` is required. `solc()` does not use svm.
 
 ```python
 svm(
     name = "svm",
-    version = "0.5.22",    # svm-rs release version
+    version = "0.5.22",
+    hashes = ["sha256:<sha256 of the release tarball>"],
     visibility = [],
 )
 ```
 
 ### solc
 
-Downloads a specific solc version using svm. Requires SvmTool to be configured.
+Installs one pinned solc static binary for the host platform. Call it from
+`third_party/binary/BUILD`. `solc_versions()` creates `solc_0_8_20` and
+`solc_0_8_23`. Any other version fails until it is added to the pin table.
 
 ```python
 solc(
-    name = "solc_0.8.20",
-    version = "0.8.20",     # Solidity version to download
+    name = "solc_0_8_20",
+    version = "0.8.20",
     visibility = [],
 )
 ```
@@ -265,7 +271,7 @@ sol_contract(
     name = "contract",
     src = "Contract.sol",
     deps = [],               # Dependencies
-    solc_version = "0.8.20", # Solidity version (uses svm)
+    solc_version = "0.8.20", # Solidity version (a solc_versions() target)
     solc_flags = "",         # Additional solc flags
     evm_version = "",        # Empty keeps the compiler default (Shanghai on 0.8.20, which emits PUSH0)
     foundry_toml = "",       # Used for evm_version and optimizer when the rule arguments are empty
@@ -290,7 +296,7 @@ sol_get(
     name = "openzeppelin-contracts",
     repo = "OpenZeppelin/openzeppelin-contracts",
     revision = "v5.0.2",     # Git revision (prefer commit SHA)
-    hashes = [],             # SHA256 hashes for verification (recommended!)
+    hashes = ["sha256:..."], # Required. Pin the commit archive; tag zips are not stable
     import_prefix = "",      # Defaults to "{name}/" (e.g., "openzeppelin-contracts/")
     package = "contracts",   # Source directory in repo
     install = ["."],         # Subdirectories to install
@@ -327,7 +333,7 @@ sol_test(
 
 ## How It Works
 
-1. **Compilation**: Uses Foundry's `forge build --use <version>` which leverages svm (Solidity Version Manager) to automatically download and cache the specified solc version. The EVM version is the compiler default unless `evm_version` or `foundry.toml` sets one. Optimizer settings on the rule win over `foundry.toml`, which wins over the plugin default. A toml that only sets `evm_version` does not turn the optimizer off.
+1. **Compilation**: `forge build` runs the `ForgeTool` binary. With `SolcPackage` or `SolcTool` set, `--use` is that solc and forge does not download one. The EVM version is the compiler default unless `evm_version` or `foundry.toml` sets one. Optimizer settings on the rule win over `foundry.toml`, which wins over the plugin default. A toml that only sets `evm_version` does not turn the optimizer off.
 
 2. **ABI/Bytecode Extraction**: After a successful compile, ABIs and bytecode are extracted from Forge's JSON artifacts. A failed compile fails the target.
 

@@ -14,13 +14,13 @@ name = solidity
 
 [PluginConfig "forge_tool"]
 ConfigKey = ForgeTool
-DefaultValue = ~/.foundry/bin/forge
-Help = Path or build label for the forge tool. Default assumes Foundry is installed via foundryup.
+Help = Build label of forge from the foundry plugin, such as //third_party/binary:foundry|forge. A host path requires Sandbox = false.
+Optional = true
 Inherit = true
 
 [PluginConfig "svm_tool"]
 ConfigKey = SvmTool
-Help = Build label for the svm binary (from svm() rule). Used by solc() rule to download solc versions.
+Help = Build label for an svm() binary. solc() does not use it. Optional so an old .plzconfig still parses.
 Optional = true
 Inherit = true
 
@@ -82,9 +82,9 @@ Inherit = true
 
 [PluginConfig "sandbox"]
 ConfigKey = Sandbox
-DefaultValue = false
+DefaultValue = true
 Type = bool
-Help = Enable sandbox for forge builds. Disabled by default because forge needs access to ~/.svm for solc versions.
+Help = Run forge inside the Please sandbox. A ForgeTool path starting with / or ~ needs Sandbox = false.
 Inherit = true
 
 # ============================================================
@@ -98,9 +98,13 @@ Target = //plugins:cc
 Target = //plugins:go
 gotool = //third_party/solidity/go:gotool|go
 
+[Plugin "foundry"]
+Target = //plugins:foundry
+
 [Plugin "solidity"]
-SvmTool = //test:svm
-SolcPackage = //test
+ForgeTool = //third_party/binary:foundry|forge
+SolcPackage = //third_party/binary
+Sandbox = true
 AbigenTool = //third_party/solidity/go:abigen
 GoEthereumDep = //third_party/solidity/go:go-ethereum
 PleaseSolTool = //tools/please_sol:please_sol
