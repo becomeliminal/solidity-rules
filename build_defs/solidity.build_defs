@@ -245,6 +245,10 @@ def sol_contract(
         deps: list = [],
         solc_version: str = None,
         solc_flags: str = '',
+        evm_version: str = '',
+        foundry_toml: str = '',
+        optimizer = None,
+        optimizer_runs = None,
         contract_names: list = [],
         skip: list = [],
         languages: list = None,
@@ -268,6 +272,12 @@ def sol_contract(
         solc_version: Solidity compiler version (e.g., "0.8.20"). Used when
             downloading via svm. Defaults to DefaultSolcVersion config.
         solc_flags: Additional flags for solc/forge.
+        evm_version: EVM version passed to forge (e.g. "paris", "cancun").
+            Empty uses foundry_toml when that is set, otherwise the compiler default.
+        foundry_toml: Optional foundry.toml. evm_version, optimizer, and
+            optimizer_runs are read from it when the matching argument is empty.
+        optimizer: True or False. Empty uses foundry_toml, then the plugin default.
+        optimizer_runs: Optimizer runs. Empty uses foundry_toml, then the plugin default.
         contract_names: Names of contracts in the source file. Required for
             multi-contract files when generating language bindings.
         skip: Contract names to skip during compilation.
@@ -295,35 +305,14 @@ def sol_contract(
         else:
             languages = []
 
-    # Extract interface and contract names from source.
-    # The regex anchors to the start of the line (after optional whitespace and
-    # the "abstract" keyword) so NatSpec comments containing the word
-    # "interface" or "contract" are not matched.
-    _iface_sed = r"sed -n 's#^[[:space:]]*\(abstract[[:space:]]\{1,\}\)\{0,1\}interface[[:space:]]\{1,\}\([A-Za-z_][A-Za-z0-9_]*\).*#\2#p'"
-    _contract_sed = r"sed -n 's#^[[:space:]]*\(abstract[[:space:]]\{1,\}\)\{0,1\}contract[[:space:]]\{1,\}\([A-Za-z_][A-Za-z0-9_]*\).*#\2#p'"
-    file_to_cat = '$SRCS'
-    cmd = ' && '.join([
-        f"cat {file_to_cat} | {_iface_sed} > $OUTS",
-        f"cat {file_to_cat} | {_contract_sed} >> $OUTS",
-        f"path={file_to_cat} && echo $path && base=$(basename $path)",
-        'sed "s/^/$base\\//" $OUTS > $OUTS.tmp && mv $OUTS.tmp $OUTS',
-    ])
-    if _is_dir:
-        singleton_cmd = ' && '.join([
-            f"cat $file | {_iface_sed} > tmp",
-            f"cat $file | {_contract_sed} >> tmp",
-            f"path=$file && echo $path && base=$(basename $path)",
-            'sed "s/^/$base\\//" tmp > tmp2 && mv tmp2 tmp',
-            "cat tmp >> $OUTS && cat $OUTS",
-        ])
-        file_to_cat = '$(find $SRCS -type f | sort -r) '
-        cmd = f"touch $OUTS && for file in {file_to_cat}; do {singleton_cmd}; done"
-
+    # Names come from please_sol's lexer. A comment or string that says
+    # "contract" is not a declaration, and libraries are included.
     interfaces_rule = genrule(
         name = f"{name}_interfaces",
         srcs = [src],
+        tools = {"plzsol": CONFIG.SOLIDITY.PLEASE_SOL_TOOL},
         out = f"{name}.interfaces",
-        cmd = cmd,
+        cmd = "$TOOLS_PLZSOL extract-decls $SRCS > $OUT",
         test_only = test_only,
     )
 
@@ -333,41 +322,52 @@ def sol_contract(
         quoted_skip = _shell_quote(skipped)
         skip_cmd += f" --skip {quoted_skip} "
 
-    # Configure forge flags from config
-    optimize = CONFIG.SOLIDITY.OPTIMIZE
-    optimizer_runs = CONFIG.SOLIDITY.OPTIMIZER_RUNS or 100
-    forge_flags = ""
-    if optimize:
-        forge_flags = f"--optimize --optimizer-runs {optimizer_runs}"
+    # solc_flags is one shell word. An empty string must not become an argument.
+    quoted_solc_flags = _shell_quote(solc_flags) if solc_flags else ""
 
-    # Add EVM version for newer solc versions
-    if _compare_version_lists(_version_tuple(solc_version), _version_tuple("0.8.20")):
-        forge_flags += " --evm-version paris"
-
-    # SECURITY: Quote solc_flags to prevent injection
-    all_flags = forge_flags
-    if solc_flags:
-        quoted_solc_flags = _shell_quote(solc_flags)
-        all_flags += " " + quoted_solc_flags
-
-    # Build the forge command using shared helpers
     # Copy main source and any dep .sol files from the same package to src/
-    # This enables relative imports like "./Counter.sol" to work
+    # This enables relative imports like "./Counter.sol" to work.
+    # With a foundry.toml input the source is $SRCS_SRC, not $SRCS.
     pkg = package_name()
-    setup_cmd = f'mkdir -p src && ([ -d "$SRCS" ] && cp -r "$SRCS"/* src/ 2>/dev/null || cp "$SRCS" src/ 2>/dev/null) && (find {pkg} -maxdepth 1 -name "*.sol" -exec cp {{}} src/ \\; 2>/dev/null || true)'
+    src_var = "$SRCS_SRC" if foundry_toml else "$SRCS"
+    setup_cmd = f'mkdir -p src && ([ -d "{src_var}" ] && cp -r "{src_var}"/* src/ 2>/dev/null || cp "{src_var}" src/ 2>/dev/null) && (find {pkg} -maxdepth 1 -name "*.sol" -exec cp {{}} src/ \\; 2>/dev/null || true)'
     solc_use_arg = _get_solc_use_arg(solc_version)
-    solc_cmd = f'build --use {solc_use_arg} {skip_cmd} {all_flags} --extra-output bin --extra-output-files bin --root .'
+    resolve_cmd = _resolve_flags_cmd(
+        evm_version,
+        optimizer,
+        optimizer_runs,
+        '"$SRCS_FOUNDRY_TOML"' if foundry_toml else "",
+    )
+    collect_remappings = _remapping_args_cmd()
 
-    # Extract ABIs and bytecode from JSON files
-    abi_bin_extract = 'if [ -d out ]; then for json_file in $(find out -name "*.json" -type f 2>/dev/null); do jq ".abi" "$json_file" > "${json_file%.json}.abi" 2>/dev/null || true; jq -r ".bytecode.object // .bytecode" "$json_file" | sed "s/^0x//" > "${json_file%.json}.bin" 2>/dev/null || true; done; find out -mindepth 2 \\( -name "*.abi" -o -name "*.bin" \\) -exec mv {} out/ \\; 2>/dev/null || true; fi'
+    # forge-wrap's exit code is forge's. A failed compile stops before
+    # extract-artifacts, including when forge has already created out/.
+    # Please puts the input at its repo path. That path is often under test/,
+    # which forge compiles as well as src/, so the same contract appears twice.
+    forge_lines = [
+        "set -e",
+        collect_remappings,
+        setup_cmd,
+        "printf '%s\\n' '[profile.default]' 'src = \"src\"' 'out = \"out\"' 'test = \"no-tests\"' 'script = \"no-scripts\"' > foundry.toml",
+        "FLAGS=$(" + resolve_cmd + ")",
+        "set +e",
+        "$TOOLS_PLZSOL forge-wrap --forge \"$TOOLS_FORGE\" --remapping-file remappings.txt -- build --use "
+        + solc_use_arg + " " + skip_cmd + " $FLAGS " + quoted_solc_flags
+        + " --extra-output bin --extra-output-files bin --root . $REMAP_ARGS",
+        "code=$?",
+        "set -e",
+        'if [ "$code" -ne 0 ]; then exit "$code"; fi',
+        'mkdir -p "$OUT"',
+        '$TOOLS_PLZSOL extract-artifacts --out out --dest "$OUT"',
+    ]
 
-    # Use shared helpers for tools and remappings
     build_tools = _get_forge_tools(solc_version)
-    collect_remappings = _collect_remappings_cmd()
+    build_tools["plzsol"] = CONFIG.SOLIDITY.PLEASE_SOL_TOOL
+    forge_srcs = {"src": [src], "foundry_toml": [foundry_toml]} if foundry_toml else [src]
 
     forge_build = genrule(
         name = f"_{name}#forge_build",
-        srcs = [src],
+        srcs = forge_srcs,
         deps = deps,
         requires = ['sol_srcs', 'sol_remappings'],
         tools = build_tools,
@@ -375,7 +375,7 @@ def sol_contract(
         needs_transitive_deps = True,
         output_is_complete = True,
         sandbox = CONFIG.SOLIDITY.SANDBOX,
-        cmd = f'{collect_remappings} && {setup_cmd} && $TOOLS_FORGE {solc_cmd} $REMAPPINGS || [ -d out ] && {abi_bin_extract} && mkdir -p $OUT && ([ -d out ] && mv out/* $OUT || mkdir -p $OUT)',
+        cmd = "\n".join(forge_lines),
         test_only = test_only,
     )
     plugins = {'sol_artifacts': forge_build}
@@ -393,9 +393,17 @@ def sol_contract(
             },
             tools = [abigen_tool],
             output_dirs = ["out/**"],
-            cmd = ' && '.join([
-                'mkdir out',
-                f'while read p; do p_base=$(basename "$p") && p_lower=$(echo "$p_base" | tr A-Z a-z) && $TOOL --type=instance --abi=$SRCS_FORGE_BUILD/"$p_base".abi --bin=$SRCS_FORGE_BUILD/"$p_base".bin --pkg="$p_lower" --out=out/"$p_lower".go; done < $SRCS_INTERFACES',
+            cmd = "\n".join([
+                "set -e",
+                "mkdir out",
+                "while IFS=$(printf '\\t') read -r kind name; do",
+                '  if [ -z "$name" ]; then continue; fi',
+                '  p_lower=$(printf "%s" "$name" | tr A-Z a-z)',
+                '  abi="$SRCS_FORGE_BUILD/$name.abi"',
+                '  bin="$SRCS_FORGE_BUILD/$name.bin"',
+                '  if [ ! -f "$abi" ] || [ ! -f "$bin" ]; then echo "no artifact for $kind $name" >&2; exit 1; fi',
+                '  $TOOL --type=instance --abi="$abi" --bin="$bin" --pkg="$p_lower" --out="out/$p_lower.go"',
+                'done < "$SRCS_INTERFACES"',
             ]),
             needs_transitive_deps = True,
             visibility = visibility,
@@ -470,6 +478,10 @@ def sol_get(
         install: list = ['.'],
         strip: list = [],
         solc_flags: str = '',
+        evm_version: str = '',
+        foundry_toml: str = '',
+        optimizer = None,
+        optimizer_runs = None,
         contract_names: list = [],
         skip: list = [],
         languages: list = None,
@@ -597,6 +609,10 @@ def sol_get(
         deps = deps,
         solc_version = solc_version,
         solc_flags = solc_flags,
+        evm_version = evm_version,
+        foundry_toml = foundry_toml,
+        optimizer = optimizer,
+        optimizer_runs = optimizer_runs,
         contract_names = contract_names,
         skip = skip,
         languages = languages,
@@ -612,6 +628,10 @@ def _sol_get_library(
         deps: list = [],
         solc_version: str = None,
         solc_flags: str = '',
+        evm_version: str = '',
+        foundry_toml: str = '',
+        optimizer = None,
+        optimizer_runs = None,
         contract_names: list = [],
         skip: list = [],
         languages: list = None,
@@ -672,6 +692,10 @@ def _sol_get_library(
             deps = contract_deps,
             solc_version = solc_version,
             solc_flags = solc_flags,
+            evm_version = evm_version,
+            foundry_toml = foundry_toml,
+            optimizer = optimizer,
+            optimizer_runs = optimizer_runs,
             contract_names = contract_names,
             skip = skip,
             languages = languages,
@@ -703,13 +727,19 @@ def sol_test(
         deps: list = [],
         solc_version: str = None,
         solc_flags: str = '',
+        evm_version: str = '',
+        foundry_toml: str = '',
+        optimizer = None,
+        optimizer_runs = None,
         visibility: list = [],
         timeout: int = 0,
         labels: list = [],
 ):
     """Runs Solidity tests using Forge.
 
-    This rule compiles the test contract and runs it using Foundry's forge test.
+    forge test compiles the sources once. Results are forge's JSON, rewritten
+    to Go test lines so Please reports each test with its duration and, on
+    failure, the revert reason.
 
     Args:
         name: Name of the rule.
@@ -717,6 +747,11 @@ def sol_test(
         deps: Dependencies (other sol_library or sol_contract rules).
         solc_version: Solidity compiler version. Defaults to plugin config.
         solc_flags: Additional solc flags.
+        evm_version: EVM version passed to forge. Empty uses foundry_toml,
+            otherwise the compiler default.
+        foundry_toml: Optional foundry.toml for evm_version and optimizer.
+        optimizer: True or False. Empty uses foundry_toml, then the plugin default.
+        optimizer_runs: Optimizer runs. Empty uses foundry_toml, then the plugin default.
         visibility: Visibility specification.
         timeout: Test timeout in seconds.
         labels: Additional labels for the test.
@@ -724,21 +759,12 @@ def sol_test(
     if solc_version is None:
         solc_version = CONFIG.SOLIDITY.DEFAULT_SOLC_VERSION
 
-    contract = sol_contract(
-        name = f"_{name}#contract",
-        src = src,
-        deps = deps,
-        solc_version = solc_version,
-        solc_flags = solc_flags,
-        languages = [],
-        visibility = visibility,
-    )
-
-    # Gather solidity source files from contract and its deps
+    # The test file is a source. Deps contribute their sol_srcs. There is no
+    # separate sol_contract compile: forge test is the compile.
     sol_src_data = genrule(
         name = f'_{name}#solsrcs',
-        srcs = [contract],
-        deps = deps,  # Include test deps so their sol_srcs are collected
+        srcs = [src],
+        deps = deps,
         needs_transitive_deps = True,
         output_is_complete = True,
         requires = ['sol_srcs'],
@@ -746,20 +772,10 @@ def sol_test(
         cmd = "mkdir -p $OUT && mv * $OUT 2>/dev/null || true",
         visibility = visibility,
     )
-    # Gather the test's solidity compilation artifacts
-    sol_artifacts_data = genrule(
-        name = f'_{name}#solartifacts',
-        srcs = [contract],
-        requires = ['sol_artifacts'],
-        out = f"{name}_solartifactdata",
-        cmd = "mkdir -p $OUT && mv $SRCS/* $OUT",
-        visibility = visibility,
-    )
 
-    # Gather remappings from deps
     sol_remapping_data = genrule(
         name = f'_{name}#remappings',
-        srcs = [contract],
+        srcs = [src],
         deps = deps,
         needs_transitive_deps = True,
         requires = ['sol_remappings'],
@@ -768,42 +784,50 @@ def sol_test(
         visibility = visibility,
     )
 
-    # Build test command using shared helpers
-    collect_remappings = _collect_remappings_cmd(f"$(location {sol_remapping_data})")
     solc_use_arg = _get_solc_use_arg(solc_version)
-
-    base_cmds = [
-        collect_remappings,
-        f"mv $(location {sol_src_data}) src",
-        f"mv $(location {sol_artifacts_data}) out",
-        # Remove all top-level dirs that will come from src/ to avoid
-        # "cannot overwrite" errors when deps span multiple package roots
-        # (e.g. test in ens_resolver/ with deps in third_party/).
-        'for d in src/*/; do rm -rf "$(basename "$d")" 2>/dev/null; done',
-        "mv src/* . && rm -rf src",
-        # Forge defaults to test/ and src/ directories. Override so it
-        # finds .t.sol files regardless of package layout.
-        "printf '[profile.default]\\nsrc = \".\"\\ntest = \".\"\\n' > foundry.toml",
-    ]
+    quoted_solc_flags = _shell_quote(solc_flags) if solc_flags else ""
+    # The two-line foundry.toml written below is only src/test discovery.
+    # A caller's foundry.toml contributes evm_version and optimizer as flags.
+    toml_shell = ""
+    if foundry_toml:
+        toml_shell = '"$(location ' + foundry_toml + ')"'
+    resolve_cmd = _resolve_flags_cmd(evm_version, optimizer, optimizer_runs, toml_shell)
 
     test_tools = _get_forge_tools(solc_version)
-    forge_cmd = f"$TOOLS_FORGE test --root . --use {solc_use_arg} -vv $REMAPPINGS $TEST_ARGS"
-    # Transform forge output to Go test format so Please can parse individual test results.
-    # [PASS] funcName() (gas: N)      -> --- PASS: funcName (0.00s)
-    # [FAIL: reason] funcName() (...) -> --- FAIL: funcName (0.00s)
-    # Non-matching lines (compilation output, warnings) pass through unchanged.
-    gotest_sed = r"""sed -e 's/^\[PASS\] \([^(]*\)(.*/--- PASS: \1 (0.00s)/' -e 's/^\[FAIL[^]]*\] \([^(]*\)(.*/--- FAIL: \1 (0.00s)/'"""
-    test_cmd = '&&'.join(base_cmds + [
-        f'set -o pipefail && {forge_cmd} 2>&1 | {gotest_sed} | tee test.results',
-    ])
+    test_tools["plzsol"] = CONFIG.SOLIDITY.PLEASE_SOL_TOOL
+
+    # local stays True until forge is a built tool rather than a host path.
+    # A sandboxed remote worker cannot see ~/.foundry/bin/forge.
+    test_lines = [
+        "set -e",
+        _remapping_args_cmd(f"$(location {sol_remapping_data})"),
+        f"mv $(location {sol_src_data}) srcstage",
+        # Deps arrive under their package directories. Drop a same-named
+        # top-level directory before flattening, or mv refuses to overwrite it.
+        'for d in srcstage/*/; do rm -rf "$(basename "$d")" 2>/dev/null || true; done',
+        "mv srcstage/* . && rm -rf srcstage",
+        "printf '[profile.default]\\nsrc = \".\"\\ntest = \".\"\\n' > foundry.toml",
+        "FLAGS=$(" + resolve_cmd + ")",
+        "set +e",
+        "$TOOLS_PLZSOL forge-wrap --forge \"$TOOLS_FORGE\" --remapping-file remappings.txt -- test --root . --use "
+        + solc_use_arg + " --json $FLAGS " + quoted_solc_flags + " $REMAP_ARGS $TEST_ARGS > forge.json",
+        "code=$?",
+        "set -e",
+        '$TOOLS_PLZSOL forge-results --json forge.json --out test.results',
+        'exit "$code"',
+    ]
+
+    data = [sol_src_data, sol_remapping_data]
+    if foundry_toml:
+        data.append(foundry_toml)
 
     return gentest(
         name = name,
-        data = [sol_src_data, sol_artifacts_data, sol_remapping_data],
+        data = data,
         sandbox = CONFIG.SOLIDITY.SANDBOX,
         test_tools = test_tools,
         local = True,
-        test_cmd = test_cmd,
+        test_cmd = "\n".join(test_lines),
         timeout = timeout,
         labels = labels,
         visibility = visibility,
@@ -821,17 +845,54 @@ def _validate_no_traversal(path: str, param_name: str):
         fail(f"{param_name} cannot contain '..': {path}")
 
 
-def _version_tuple(v):
-    return [int(p) for p in v.split(".")]
+def _opt_word(optimizer) -> str:
+    if optimizer == None:
+        return ""
+    if optimizer:
+        return "true"
+    return "false"
 
 
-def _compare_version_lists(a, b):
-    for i in range(len(a)):
-        if a[i] > b[i]:
-            return True
-        if b[i] > a[i]:
-            return False
-    return True
+def _runs_word(optimizer_runs) -> str:
+    if optimizer_runs == None:
+        return ""
+    return str(optimizer_runs)
+
+
+def _resolve_flags_cmd(evm_version: str, optimizer, optimizer_runs, toml_shell: str) -> str:
+    """Shell that prints forge compiler flags.
+
+    toml_shell is a shell word for the foundry.toml path, or "" when there
+    isn't one. Explicit rule arguments win over the file. Keys the file does
+    not set fall through to the plugin defaults.
+    """
+    default_opt = "true" if CONFIG.SOLIDITY.OPTIMIZE else "false"
+    default_runs = str(CONFIG.SOLIDITY.OPTIMIZER_RUNS or 100)
+    toml = ("--foundry-toml " + toml_shell + " ") if toml_shell else ""
+    return (
+        "$TOOLS_PLZSOL resolve-flags "
+        + toml
+        + "--evm-version " + _shell_quote(evm_version or "") + " "
+        + "--optimize " + _shell_quote(_opt_word(optimizer)) + " "
+        + "--optimizer-runs " + _shell_quote(_runs_word(optimizer_runs)) + " "
+        + "--default-optimize=" + default_opt + " "
+        + "--default-optimizer-runs " + default_runs
+    )
+
+
+def _remapping_args_cmd(search_path: str = ".") -> str:
+    """Writes remappings.txt and sets $REMAP_ARGS for forge and forge-wrap."""
+    return f''': > remappings.txt
+for f in $(find {search_path} -name "*.remapping" 2>/dev/null); do
+  cat "$f" >> remappings.txt
+done
+REMAP_ARGS=""
+while IFS= read -r line; do
+  if [ -n "$line" ]; then
+    REMAP_ARGS="$REMAP_ARGS --remappings $line"
+  fi
+done < remappings.txt
+'''
 
 
 def _local_solc(solc_version: str) -> str:
@@ -886,18 +947,6 @@ def _get_solc_use_arg(solc_version: str) -> str:
     if _local_solc(solc_version):
         return "$TOOLS_SOLC"
     return _shell_quote(solc_version)
-
-
-def _collect_remappings_cmd(search_path: str = ".") -> str:
-    """Returns bash command to collect remappings into $REMAPPINGS variable.
-
-    Args:
-        search_path: Path to search for .remapping files.
-
-    Returns:
-        Bash command that sets $REMAPPINGS.
-    """
-    return f'REMAPPINGS=""; for f in $(find {search_path} -name "*.remapping" 2>/dev/null); do while read line; do REMAPPINGS="$REMAPPINGS --remappings $line"; done < "$f"; done'
 
 
 def _for_target_platform(label:str):

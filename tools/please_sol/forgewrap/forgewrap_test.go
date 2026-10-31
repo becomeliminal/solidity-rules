@@ -17,7 +17,7 @@ func TestEnhanceError_ImportResolution(t *testing.T) {
 			stderr: `Error: Unable to resolve import "@openzeppelin/contracts/token/ERC20/ERC20.sol"`,
 			wantHints: []string{
 				"HINT: Import resolution failed",
-				"//third_party/solidity:openzeppelin-contracts",
+				":openzeppelin-contracts",
 			},
 		},
 		{
@@ -25,7 +25,7 @@ func TestEnhanceError_ImportResolution(t *testing.T) {
 			stderr: `Error: Unable to resolve import "forge-std/Test.sol"`,
 			wantHints: []string{
 				"HINT: Import resolution failed",
-				"//third_party/solidity:forge-std",
+				":forge-std",
 			},
 		},
 		{
@@ -33,7 +33,7 @@ func TestEnhanceError_ImportResolution(t *testing.T) {
 			stderr: `Error: Unable to resolve import "@rari-capital/solmate/src/tokens/ERC20.sol"`,
 			wantHints: []string{
 				"HINT: Import resolution failed",
-				"//third_party/solidity:solmate",
+				":solmate",
 			},
 		},
 		{
@@ -49,8 +49,8 @@ func TestEnhanceError_ImportResolution(t *testing.T) {
 			name:   "multiple imports",
 			stderr: `Error: Unable to resolve import "@openzeppelin/contracts/token/ERC20/ERC20.sol". Error: Unable to resolve import "forge-std/Test.sol"`,
 			wantHints: []string{
-				"//third_party/solidity:openzeppelin-contracts",
-				"//third_party/solidity:forge-std",
+				":openzeppelin-contracts",
+				":forge-std",
 			},
 		},
 	}
