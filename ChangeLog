@@ -8,6 +8,9 @@ Version 0.1.1
     * Go bindings are made for what forge compiled: a declaration in the
       sources that was skipped or never imported has no artifact and gets
       no binding. One that contract_names asks for still fails the build.
+    * sol_test runs forge in its own root of staged sources and deletes
+      nothing in the test's directory. It removed same-named top-level
+      directories there, which on remote execution held its own tools.
 
 Version 0.1.0
 -------------

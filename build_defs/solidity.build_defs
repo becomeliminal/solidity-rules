@@ -872,22 +872,30 @@ def sol_test(
     test_tools = _get_forge_tools(solc_version)
     test_tools["plzsol"] = CONFIG.SOLIDITY.PLEASE_SOL_TOOL
 
+    # forge runs in its own root, the staged sources, never in the test's
+    # directory: a remote test's tools are laid out in that directory, at
+    # paths such as third_party/... that a source package can share. The
+    # tools are made absolute before the cd.
+    absolute_tools = [
+        'case "$' + tool + '" in /*) ;; *) ' + tool + '="$PWD/$' + tool + '" ;; esac'
+        for tool in ["TOOLS_FORGE", "TOOLS_PLZSOL"] + (["TOOLS_SOLC"] if "solc" in test_tools else [])
+    ]
     test_lines = [
         "set -e",
         _remapping_args_cmd(f"$(location {sol_remapping_data})"),
-        f"mv $(location {sol_src_data}) srcstage",
-        # Deps arrive under their package directories. Drop a same-named
-        # top-level directory before flattening, or mv refuses to overwrite it.
-        'for d in srcstage/*/; do rm -rf "$(basename "$d")" 2>/dev/null || true; done',
-        "mv srcstage/* . && rm -rf srcstage",
-        "printf '[profile.default]\\nsrc = \".\"\\ntest = \".\"\\n' > foundry.toml",
         "FLAGS=$(" + resolve_cmd + ")",
+    ] + absolute_tools + [
+        f"mv $(location {sol_src_data}) forge_root",
+        "mv remappings.txt forge_root/",
+        'results="$PWD/test.results"',
+        "cd forge_root",
+        "printf '[profile.default]\\nsrc = \".\"\\ntest = \".\"\\n' > foundry.toml",
         "set +e",
         "$TOOLS_PLZSOL forge-wrap --forge \"$TOOLS_FORGE\" --remapping-file remappings.txt -- test --root . --use "
         + solc_use_arg + " --json $FLAGS " + quoted_solc_flags + " $REMAP_ARGS $TEST_ARGS > forge.json",
         "code=$?",
         "set -e",
-        '$TOOLS_PLZSOL forge-results --json forge.json --out test.results',
+        '$TOOLS_PLZSOL forge-results --json forge.json --out "$results"',
         'exit "$code"',
     ]
 
